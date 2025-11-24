@@ -1,0 +1,21 @@
+# Example mutation matrix file
+# Format: from_base  to_base  rate
+# All 12 substitutions must be specified (A->C, A->G, A->T, C->A, etc.)
+
+# Transitions (purines: A<->G, pyrimidines: C<->T)
+# Typically occur at ~2x the rate of transversions
+A   G   0.0006
+G   A   0.0006
+C   T   0.0006
+T   C   0.0006
+
+# Transversions (purine<->pyrimidine changes)
+# Generally occur at lower rates
+A   C   0.0003
+A   T   0.0003
+C   A   0.0003
+C   G   0.0003
+G   C   0.0003
+G   T   0.0003
+T   A   0.0003
+T   G   0.0003
