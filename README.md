@@ -1,10 +1,10 @@
-# mutate_seq_v2 - High-Performance Sequence Mutation Tool
+# mutate_seq - High-Performance Sequence Mutation Tool
 
 **Version 2.0** - Production-ready tool for introducing controlled mutations into genomic sequences.
 
 ## Overview
 
-`mutate_seq_v2` introduces random mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectra. Designed for simulation pipelines requiring realistic sequence variation with precise control over mutation patterns.
+`mutate_seq` introduces random mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectra. This tool is designed for researchers and bioinformaticians who need to simulate sequence variation with precise control over mutation patterns, whether for testing bioinformatics pipelines, training machine learning models, or simulating evolutionary processes.
 
 ### Key Features
 
@@ -25,41 +25,41 @@
 
 ### Build
 ```bash
-make -f Makefile_v2
+make
 ```
 
 Check dependencies:
 ```bash
-make -f Makefile_v2 check-deps
+make check-deps
 ```
 
 ## Usage
 
 ### Basic Syntax
 ```bash
-./mutate_seq_v2 --input <file> --output <prefix> [mutation_mode] [options]
+./mutate_seq --input <file> --output <prefix> [mutation_mode] [options]
 ```
 
 ### Quick Examples
 
 #### 1. Flat Mutation Rate (0.1%)
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
 ```
 
 #### 2. Fixed Number of Mutations
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --num-mutations 1000 --seed 42
+./mutate_seq --input genome.fa --output mutated --num-mutations 1000 --seed 42
 ```
 
 #### 3. Ts/Tv Ratio Control
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
 ```
 
 #### 4. Multi-threaded FASTQ Processing
 ```bash
-./mutate_seq_v2 --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 42
+./mutate_seq --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 42
 ```
 
 ## Mutation Modes
@@ -68,7 +68,7 @@ make -f Makefile_v2 check-deps
 Applies uniform mutation rate across all substitution types.
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
 ```
 
 **Use case**: Simple uniform mutations for baseline simulations.
@@ -77,7 +77,7 @@ Applies uniform mutation rate across all substitution types.
 Introduces exactly N mutations across the entire dataset.
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --num-mutations 500 --seed 42
+./mutate_seq --input genome.fa --output mutated --num-mutations 500 --seed 42
 ```
 
 **Use case**: Fixed mutation count for controlled experiments.  
@@ -87,7 +87,7 @@ Introduces exactly N mutations across the entire dataset.
 Specifies different rates for transitions and transversions.
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 42
 ```
 
 **Use case**: Modeling biological Ts/Tv bias (typically 2:1 in vertebrates).
@@ -96,7 +96,7 @@ Specifies different rates for transitions and transversions.
 Sets overall mutation rate with specified Ts/Tv ratio.
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
 ```
 
 **Use case**: Biological realism with automatic rate calculation.  
@@ -123,11 +123,11 @@ T       G       0.7
 ```
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated \
+./mutate_seq --input genome.fa --output mutated \
     --mutation-matrix mutation_matrix.txt --mutation-rate 0.001 --seed 42
 ```
 
-**Use case**: Ancient DNA damage patterns (C→T at 5' ends, G→A at 3' ends).
+**Use case**: Ancient DNA damage patterns, context-dependent mutations, or any scenario requiring fine-grained control over specific substitution types.
 
 ### Mode 6: Custom Mutation Spectrum (`--mutation-spectrum` + `--mutation-rate`)
 Proportional distribution of mutations (values normalized to sum=1).
@@ -152,41 +152,40 @@ T       G       1.0
 ```
 
 ```bash
-./mutate_seq_v2 --input genome.fa --output mutated \
+./mutate_seq --input genome.fa --output mutated \
     --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 42
 ```
 
-**Use case**: Modeling mutation signature (e.g., APOBEC: C→T/G in TpC context).
+**Use case**: Modeling mutational signatures (e.g., APOBEC, UV damage, smoking signatures) or any proportional mutation distribution.
 
 ## Pipeline Integration Example
 
-For your bear/elephant/rhino simulation pipeline with ART/gargammel:
+Example workflow for simulating sequences with varying divergence levels for read simulation:
 
 ```bash
-# Step 1: Generate three mutation levels for each sample
-SPECIES="bear_black"
-REFERENCE="${SPECIES}.fa"
+# Step 1: Generate reference variants with different mutation levels
+REFERENCE="reference_genome.fa"
 SEED=12345
 
-# Normal (N): no mutations
-cp ${REFERENCE} ${SPECIES}_N.fa
+# Baseline: no mutations
+cp ${REFERENCE} sample_baseline.fa
 
-# High mutation (H): 0.1% divergence
-./mutate_seq_v2 --input ${REFERENCE} --output ${SPECIES}_H \
-    --mutation-rate 0.001 --threads 12 --seed ${SEED}
+# High divergence: 0.1% mutation rate
+./mutate_seq --input ${REFERENCE} --output sample_high \
+    --mutation-rate 0.001 --threads 8 --seed ${SEED}
 
-# Low mutation (L): 0.01% divergence  
-./mutate_seq_v2 --input ${REFERENCE} --output ${SPECIES}_L \
-    --mutation-rate 0.0001 --threads 12 --seed $((SEED + 1))
+# Low divergence: 0.01% mutation rate
+./mutate_seq --input ${REFERENCE} --output sample_low \
+    --mutation-rate 0.0001 --threads 8 --seed $((SEED + 1))
 
-# Step 2: Simulate reads with ART
-for level in N H L; do
-    art_illumina -ss HS25 -i ${SPECIES}_${level}.fa -l 150 -f 30 \
-        -o ${SPECIES}_${level}_reads -rs ${SEED}
+# Step 2: Simulate sequencing reads (example using ART)
+for variant in baseline high low; do
+    art_illumina -ss HS25 -i sample_${variant}.fa -l 150 -f 30 \
+        -o sample_${variant}_reads -rs ${SEED}
 done
 
-# Step 3: Track which reads have mutations
-# SNP files: ${SPECIES}_H.snp and ${SPECIES}_L.snp
+# Step 3: SNP tracking files are available for analysis
+# Files generated: sample_high.snp and sample_low.snp
 ```
 
 ## Command-Line Options
@@ -291,19 +290,19 @@ brew install zlib
 
 ### Runtime Issues
 
-**Issue**: "Multiple mutation modes specified"  
-**Fix**: Use only ONE mutation mode. Example of WRONG usage:
+**Issue**: Multiple mutation modes specified  
+**Fix**: Use only ONE mutation mode. Example of incorrect usage:
 ```bash
-# WRONG: --num-mutations conflicts with --mutation-rate
-./mutate_seq_v2 --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
+# INCORRECT: --num-mutations conflicts with --mutation-rate
+./mutate_seq --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
 ```
 
 **Issue**: No mutations in output (0 in SNP file)  
-**Cause**: Mutation rate too low for small genome, or bad luck with random seed  
+**Cause**: Mutation rate too low for small genome, or stochastic variation with random seed  
 **Fix**: Increase mutation rate or use `--num-mutations` for guaranteed count
 
-**Issue**: Single thread produces 0 mutations in FASTQ  
-**Status**: Fixed in v2.0 (auto-switches to in-memory mode)
+**Issue**: Unexpected mutation counts  
+**Note**: For small genomes or low mutation rates, stochastic variation is expected. Use `--num-mutations` for deterministic counts.
 
 ### Performance Issues
 
@@ -317,8 +316,8 @@ brew install zlib
 ```bash
 gunzip -c reads.fastq.gz > reads.fastq
 # Process multiple times without decompression overhead
-./mutate_seq_v2 --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
-./mutate_seq_v2 --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
+./mutate_seq --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
+./mutate_seq --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
 ```
 
 ## Technical Details
@@ -356,17 +355,23 @@ gunzip -c reads.fastq.gz > reads.fastq
 
 ## Citation
 
-If you use this tool in published research, please cite:
+If you use this tool in published research, please cite this repository:
 
 ```
-[Your citation information here]
+mutate_seq: High-Performance Sequence Mutation Tool
+https://github.com/Madshartmann1/mutation_tool
 ```
 
 ## Contact
 
-For bugs, feature requests, or questions, please contact:
-[Your contact information]
+For questions or support, please:
+- Open an issue on GitHub
+- Email: madhar@dtu.dk
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## License
 
-[Your license information]
+This project is open source. You are free to use, modify, and distribute this software for research and academic purposes.
