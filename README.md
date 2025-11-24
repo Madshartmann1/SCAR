@@ -1,22 +1,14 @@
 # mutate_seq - High-Performance Sequence Mutation Tool
 
-**Version 2.0** - Production-ready tool for introducing controlled mutations into genomic sequences.
+**Version 0.4* - Production-ready tool for introducing controlled mutations into genomic sequences.
 
 ## Overview
 
-`mutate_seq` introduces random mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectra. This tool is designed for researchers and bioinformaticians who need to simulate sequence variation with precise control over mutation patterns, whether for testing bioinformatics pipelines, training machine learning models, or simulating evolutionary processes.
-
-### Key Features
-
-- **6 Mutation Modes**: From simple flat rates to custom mutation spectra
-- **Multi-threading**: Scalable to 92+ cores with streaming mode
-- **Gzip Support**: Transparent compression/decompression for input/output
-- **Auto-detection**: Automatically detects file format (FASTA/FASTQ) and compression
-- **SNP Receipt**: Generates seqtk-compatible SNP files for tracking mutations
-- **Memory Efficient**: Streaming mode for large FASTQ files (50GB+)
-- **Quality Preservation**: FASTQ quality scores remain unchanged
+`mutate_seq` introduces random mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectra. This tool is designed for researchers and bioinformaticians who need to simulate sequence variation with precise control over mutation patterns.
 
 ## Installation
+
+Something about using gihub to get this tool down local 
 
 ### Requirements
 - C++11 compiler (g++ 4.8+)
@@ -71,8 +63,6 @@ Applies uniform mutation rate across all substitution types.
 ./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
 ```
 
-**Use case**: Simple uniform mutations for baseline simulations.
-
 ### Mode 2: Flat Number (`--num-mutations`)
 Introduces exactly N mutations across the entire dataset.
 
@@ -80,7 +70,6 @@ Introduces exactly N mutations across the entire dataset.
 ./mutate_seq --input genome.fa --output mutated --num-mutations 500 --seed 42
 ```
 
-**Use case**: Fixed mutation count for controlled experiments.  
 **Note**: Requires in-memory mode (not available for streaming).
 
 ### Mode 3: Separate Ts/Tv Rates (`--ts-rate` + `--tv-rate`)
@@ -90,8 +79,6 @@ Specifies different rates for transitions and transversions.
 ./mutate_seq --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 42
 ```
 
-**Use case**: Modeling biological Ts/Tv bias (typically 2:1 in vertebrates).
-
 ### Mode 4: Ts/Tv Ratio (`--mutation-rate` + `--ts-tv-ratio`)
 Sets overall mutation rate with specified Ts/Tv ratio.
 
@@ -99,7 +86,6 @@ Sets overall mutation rate with specified Ts/Tv ratio.
 ./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
 ```
 
-**Use case**: Biological realism with automatic rate calculation.  
 **Calculation**: `ts_rate = rate × ratio / (ratio + 1)`, `tv_rate = rate / (ratio + 1)`
 
 ### Mode 5: Custom Mutation Matrix (`--mutation-matrix` + `--mutation-rate`)
@@ -127,8 +113,6 @@ T       G       0.7
     --mutation-matrix mutation_matrix.txt --mutation-rate 0.001 --seed 42
 ```
 
-**Use case**: Ancient DNA damage patterns, context-dependent mutations, or any scenario requiring fine-grained control over specific substitution types.
-
 ### Mode 6: Custom Mutation Spectrum (`--mutation-spectrum` + `--mutation-rate`)
 Proportional distribution of mutations (values normalized to sum=1).
 
@@ -155,8 +139,6 @@ T       G       1.0
 ./mutate_seq --input genome.fa --output mutated \
     --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 42
 ```
-
-**Use case**: Modeling mutational signatures (e.g., APOBEC, UV damage, smoking signatures) or any proportional mutation distribution.
 
 ## Pipeline Integration Example
 
@@ -194,7 +176,7 @@ done
 - `--input FILE`: Input FASTA/FASTQ file (plain or gzipped)
 - `--output PREFIX`: Output file prefix (format auto-matches input)
 
-### Mutation Mode (choose ONE)
+### Mutation Mode
 - `--mutation-rate FLOAT`: Uniform mutation rate (0.0-1.0)
 - `--num-mutations INT`: Fixed number of mutations
 - `--ts-rate FLOAT --tv-rate FLOAT`: Separate transition/transversion rates
@@ -226,24 +208,13 @@ seq_2       89      G       A
 
 Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 
-## Performance
 
-### Benchmarks (10k reads × 150bp, mutation rate 0.001)
-
-| Threads | Time    | Throughput    | Mode      |
-|---------|---------|---------------|-----------|
-| 1       | 10.0s   | 1000 seq/sec  | In-memory |
-| 2       | 10.3s   | 1000 seq/sec  | Streaming |
-| 4       | 10.3s   | 1000 seq/sec  | Streaming |
-| 8       | 10.3s   | 1000 seq/sec  | Streaming |
-
-**Note**: Small files are I/O bound (gzip). Threading benefits appear with larger datasets (100k+ reads).
 
 ### Processing Modes
 
 #### In-Memory Mode
 - **Triggered by**: FASTA input, `--num-mutations`, or `--threads 1`
-- **Characteristics**: Loads all sequences into RAM, enables detailed statistics
+- **Characteristics**: Loads ALL sequences into RAM, enables detailed statistics
 - **Best for**: Reference genomes (<10GB), fixed mutation count mode
 - **Memory usage**: ~2-3× file size
 
@@ -254,22 +225,16 @@ Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 - **Memory usage**: ~50-100MB regardless of file size
 - **Threads**: 1 producer + (N-1) workers (min 2 threads required)
 
-## Validation
 
 ### Test Suite
 ```bash
 # Generate test data
-python3 generate_test_data.py
+python generate_test_data.py
 
 # Test all modes
-make -f Makefile_v2 test
+make -f Makefile test
 ```
 
-### Expected Output
-- **Mutation rate accuracy**: Within ~2% of specified rate
-- **Ts/Tv ratio**: Within 10% of target (small genomes have higher variance)
-- **Output format**: Matches input format and compression
-- **SNP file**: All mutations logged in seqtk format
 
 ## Troubleshooting
 
@@ -338,20 +303,6 @@ gunzip -c reads.fastq.gz > reads.fastq
 - Mutations only affect sequence line (line 2 of each record)
 - Quality line (line 4) remains unchanged
 
-## Changelog
-
-### Version 2.0 (Current)
-- Added streaming mode with multi-threading
-- Added gzip support (input and output)
-- Added custom mutation spectrum mode
-- Added progress monitoring
-- Fixed single-thread mode for FASTQ
-- Fixed mutation mode selection logic
-
-### Version 1.0
-- Initial implementation with in-memory processing
-- 5 mutation modes (flat rate, flat number, separate Ts/Tv, Ts/Tv ratio, custom matrix)
-- FASTA support only
 
 ## Citation
 
@@ -374,4 +325,4 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## License
 
-This project is open source. You are free to use, modify, and distribute this software for research and academic purposes.
+This project is currently in reasearch stages.
