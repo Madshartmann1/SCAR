@@ -1,5 +1,4 @@
 # Damage profile converted from mapDamage output
-# Source: /home/projects2/Biodiversity_Extinction/dmg_patterns/imperical_dmg_patterns/ds_Camelid14-El-Olivar/misincorporation.txt
 # Format: end position from_base to_base frequency
 end	position	from	to	frequency
 5p	1	C	T	0.040692
