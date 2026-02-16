@@ -11,14 +11,13 @@ This directory contains damage profiles converted from mapDamage output for simu
 - Moderate C→T deamination at 5' end (~4.1% at position 1)
 - Moderate G→A deamination at 3' end (~4.2% at position 1)
 - Symmetric damage pattern typical of double-stranded ancient DNA
-- Well-preserved ancient mammal DNA from biodiversity extinction study
-- **Biologically relevant**: Real data from extinct/endangered mammal studies
+- Real data from extinct/endangered mammal studies
 
 **Usage**:
 ```bash
-./mutate_seq_v2 --input reads.fastq.gz --output damaged \
+./mutate_seq --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
-    --threads 8 --seed 42
+    --threads 8 --seed 27
 ```
 
 ### 2. Single-Stranded DNA (Ccsp015)
@@ -32,20 +31,20 @@ This directory contains damage profiles converted from mapDamage output for simu
 
 **Usage**:
 ```bash
-./mutate_seq_v2 --input reads.fastq.gz --output damaged \
+./mutate_seq --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/single_stranded_damage.txt \
-    --threads 8 --seed 42
+    --threads 8 --seed 27
 ```
 
-## Optional Background Mutation Rate
+## Optional Additional Background Mutation Rate
 
 You can add a background mutation rate to simulate evolutionary divergence alongside damage:
 
 ```bash
-./mutate_seq_v2 --input reads.fastq.gz --output damaged \
+./mutate_seq --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --background-rate 0.0001 \
-    --threads 8 --seed 42
+    --threads 8 --seed 27
 ```
 
 The background rate applies uniformly across all positions, while damage is position-dependent (enriched at read ends).
@@ -58,7 +57,7 @@ The damage profile format is simple tab-delimited:
 # Comment lines start with #
 end     position    from    to    frequency
 5p      1           C       T     0.168674
-5p      2           C       T     0.056428
+5p      2           C       T     0.056278
 3p      1           G       A     0.019386
 ...
 ```
@@ -68,12 +67,12 @@ end     position    from    to    frequency
 - **from/to**: Base substitution
 - **frequency**: Damage probability (0.0-1.0)
 
-## Converting mapDamage Output
+## Bespoke Damage Profiles - Converting mapDamage Output
 
-Use the provided script to convert mapDamage `misincorporation.txt` files:
+If you have your own damage profile, conversion from mapDamage can be done with the provided script to convert `misincorporation.txt` to the format shown above:
 
 ```bash
-python3 convert_mapdamage.py path/to/misincorporation.txt --output custom_damage.txt
+convert_mapdamage.py path/to/misincorporation.txt --output custom_damage.txt
 ```
 
 ## Expected Mutation Patterns
