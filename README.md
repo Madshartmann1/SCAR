@@ -314,11 +314,13 @@ CGATCGAT...
 
 **Fragment size selection**:
 1. Sample a fragment length from the distribution
-2. If length < remaining sequence → check if remainder ≥ min_fragment_length
+2. If sampled length > max_fragment_length → resample (up to 100 attempts)
+   - If all attempts exceed max → use max_fragment_length
+3. If length < remaining sequence → check if remainder ≥ min_fragment_length
    - If yes: keep short fragment
    - If no: discard remainder
-3. If entire read < first sampled length → discard entire read 
-4. Extract new read and do step 1
+4. If entire read < first sampled length → discard entire read 
+5. Extract new read and repeat from step 1
 
 
 ### Complete Ancient DNA Simulation Example
