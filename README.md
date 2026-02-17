@@ -49,29 +49,29 @@ make check-deps
 
 ### Basic Syntax
 ```bash
-./mutate_seq --input <file> --output <prefix> [mutation_mode] [options]
+./scar --input <file> --output <prefix> [mutation_mode] [options]
 ```
 <!---
 ### Quick Examples
 
 #### 1. Flat Mutation Rate (0.1%)
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
+./scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 #### 2. Fixed Number of Mutations
 ```bash
-./mutate_seq --input genome.fa --output mutated --num-mutations 1000 --seed 27
+./scar --input genome.fa --output mutated --num-mutations 1000 --seed 27
 ```
 
 #### 3. Ts/Tv Ratio Control
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
+./scar --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
 #### 4. Multi-threaded FASTQ Processing
 ```bash
-./mutate_seq --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 27
+./scar --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 27
 ```
 --->
 
@@ -82,14 +82,14 @@ make check-deps
 Applies uniform mutation rate across all substitution types.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
+./scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 ### Mode 2: Flat Number (`--num-mutations`)
 Introduces exactly N mutations across the entire dataset.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --num-mutations 500 --seed 27
+./scar --input genome.fa --output mutated --num-mutations 500 --seed 27
 ```
 
 **Note**: Requires in-memory mode (not available for streaming).
@@ -98,14 +98,14 @@ Introduces exactly N mutations across the entire dataset.
 Specifies different rates for transitions and transversions.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 27
+./scar --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 27
 ```
 
 ### Mode 4: Ts/Tv Ratio (`--mutation-rate` + `--ts-tv-ratio`)
 Sets overall mutation rate with specified Ts/Tv ratio.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated \
+./scar --input genome.fa --output mutated \
  --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
@@ -136,7 +136,7 @@ T       G       0.007
 ```
 
 ```bash
-./mutate_seq --input genome.fa --output mutated \
+./scar --input genome.fa --output mutated \
     --mutation-matrix mutation_matrix.txt --mutation-rate 1 --seed 27
 ```
 
@@ -169,7 +169,7 @@ T       G       1.0
 ```
 
 ```bash
-./mutate_seq --input genome.fa --output mutated \
+./scar --input genome.fa --output mutated \
     --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 27
 ```
 
@@ -185,14 +185,14 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
 
 **Just damage (`--ancient-damage`)**
 ```bash
-./mutate_seq --input reads.fastq.gz --output damaged \
+./scar --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --threads 8
 ```
 
 **Damage + mutation rate + Ts/Tv ratio (`--ancient-damage`+`--mutation-rate`+`--ts-tv-ratio`)**
 ```bash
-./mutate_seq --input reads.fastq.gz --output evolved_damaged \
+./scar --input reads.fastq.gz --output evolved_damaged \
     --mutation-rate 0.001 --ts-tv-ratio 2.0 \
     --ancient-damage damage_profiles/single_stranded_damage.txt \
     --threads 8
@@ -203,7 +203,7 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
 
 Background rate only effects poistions left untouched by the damage profile. 
 ```bash
-./mutate_seq --input reads.fastq.gz --output complex \
+./scar --input reads.fastq.gz --output complex \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --background-rate 0.0001 \
     --threads 8
@@ -225,7 +225,7 @@ Background rate only effects poistions left untouched by the damage profile.
 
 All fragments exactly N bp:
 ```bash
-./mutate_seq --input genome.fa --output fragments \
+./scar --input genome.fa --output fragments \
     --fragment-length 100 \
     --mutation-rate 0.001
 ```
@@ -234,7 +234,7 @@ All fragments exactly N bp:
 
 Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 ```bash
-./mutate_seq --input genome.fa --output ancient_frags \
+./scar --input genome.fa --output ancient_frags \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \
@@ -254,7 +254,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 3. Exponental Distribution
 
 ```bash
-./mutate_seq --input genome.fa --output frags \
+./scar --input genome.fa --output frags \
     --fragment-distribution exponential \
     --mean-length 80 \
     --max-fragment-length 200 \
@@ -264,7 +264,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 4. Normal Distribution
 
 ```bash
-./mutate_seq --input genome.fa --output frags \
+./scar --input genome.fa --output frags \
     --fragment-distribution normal \
     --mean-length 150 \
     --sd-length 30 \
@@ -275,7 +275,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 5. Lognormal Distribution
 
 ```bash
-./mutate_seq --input genome.fa --output frags \
+./scar --input genome.fa --output frags \
     --fragment-distribution lognormal \
     --mean-length 100 \
     --sd-length 50 \
@@ -288,7 +288,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 **Minimum fragment length**: By default, fragments shorter than **20bp** are discarded. Change this threshold:
 
 ```bash
-./mutate_seq --input genome.fa --output frags \
+./scar --input genome.fa --output frags \
     --fragment-distribution empirical \
     --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \
@@ -328,7 +328,7 @@ CGATCGAT...
 Combine fragmentation + mutations + damage for realistic ancient DNA:
 
 ```bash
-./mutate_seq --input modern_reference.fa --output ancient_sample \
+./scar --input modern_reference.fa --output ancient_sample \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \
@@ -411,7 +411,7 @@ brew install zlib
 **Fix**: Use only ONE mutation mode. Example of incorrect usage:
 ```bash
 # INCORRECT: --num-mutations conflicts with --mutation-rate
-./mutate_seq --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
+./scar --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
 ```
 
 **Issue**: No mutations in output (0 in SNP file)  
@@ -433,8 +433,8 @@ brew install zlib
 ```bash
 gunzip -c reads.fastq.gz > reads.fastq
 # Process multiple times without decompression overhead
-./mutate_seq --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
-./mutate_seq --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
+./scar --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
+./scar --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
 ```
 
 ## Technical Details

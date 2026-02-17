@@ -1,5 +1,5 @@
-#ifndef MUTATE_SEQ_H
-#define MUTATE_SEQ_H
+#ifndef scar_H
+#define scar_H
 
 #include <string>
 #include <vector>
@@ -825,4 +825,4 @@ public:
     void printUsage() const;
 };
 
-#endif // MUTATE_SEQ_H
+#endif // scar_H

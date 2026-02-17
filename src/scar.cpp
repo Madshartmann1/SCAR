@@ -1,4 +1,4 @@
-#include "mutate_seq.h"
+#include "scar.h"
 #include <iostream>
 #include <sstream>
 #include <algorithm>
@@ -1981,10 +1981,10 @@ Config ArgumentParser::parse() {
 
 void ArgumentParser::printUsage() const {
     std::cout << R"(
-mutate_seq - Sequence Mutation Tool v0.5
+scar - Sequence Mutation Tool v0.5
 Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences
 
-Usage: mutate_seq [options]
+Usage: scar [options]
 
 Required arguments:
   -i, --input <file>        Input FASTA/FASTQ file (gzipped or uncompressed)
@@ -2028,33 +2028,33 @@ Processing pipeline:
 
   Examples:
   # Reference genome with uniform mutations
-  mutate_seq -i ref.fa -o mutated -r 0.001 -s 27
+  scar -i ref.fa -o mutated -r 0.001 -s 27
 
   # Read file with Ts/Tv biased mutations (8 threads)
-  mutate_seq -i reads.fastq.gz -o mutated \
+  scar -i reads.fastq.gz -o mutated \
              -r 0.001 --ts-tv-ratio 2.0 -t 8
 
   # Ancient DNA damage ONLY
-  mutate_seq -i reads.fastq.gz -o damaged \
+  scar -i reads.fastq.gz -o damaged \
              -d damage_profiles/double_stranded_damage.txt
 
   # Uniform mutation + ancient damage
-  mutate_seq -i reads.fastq.gz -o evolved_damaged \
+  scar -i reads.fastq.gz -o evolved_damaged \
              -r 0.001 --ts-tv-ratio 2.0 \
              -d damage_profiles/double_stranded_damage.txt -t 8
 
   # DNA fragmentation: static length 50bp
-  mutate_seq -i genome.fa -o fragmented \
+  scar -i genome.fa -o fragmented \
              -r 0.001 -f 50
 
   # DNA fragmentation: ancient empirical distribution
-  mutate_seq -i genome.fa -o ancient_frags \
+  scar -i genome.fa -o ancient_frags \
              -r 0.001 \
              --fd empirical \
              --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt
 
   # FULL STACK: Fragmentation + Mutations + Damage (ancient DNA simulation)
-  mutate_seq -i genome.fa -o ancient_sim \
+  scar -i genome.fa -o ancient_sim \
              --fd empirical \
              --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt \
              -r 0.001 --ts-tv-ratio 2.0 \

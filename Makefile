@@ -9,20 +9,20 @@ SRC_DIR = src
 BIN_DIR = bin
 
 # Target executables
-TARGET = $(BIN_DIR)/mutate_seq
-DEBUG_TARGET = $(BIN_DIR)/mutate_seq_debug
+TARGET = $(BIN_DIR)/scar
+DEBUG_TARGET = $(BIN_DIR)/scar_debug
 
 # Source files
-SOURCES = $(SRC_DIR)/mutate_seq.cpp
-HEADERS = $(SRC_DIR)/mutate_seq.h
+SOURCES = $(SRC_DIR)/scar.cpp
+HEADERS = $(SRC_DIR)/scar.h
 
 # Default target - build optimized version
 all: $(TARGET)
 	@echo ""
 	@echo "============================================"
 	@echo "Build complete!"
-	@echo "Executable: bin/mutate_seq"
-	@echo "Run './bin/mutate_seq --help' for usage"
+	@echo "Executable: bin/scar"
+	@echo "Run './bin/scar --help' for usage"
 	@echo "============================================"
 
 # Create bin directory if it doesn't exist
@@ -46,12 +46,12 @@ clean:
 
 # Install (copies to /usr/local/bin)
 install: $(TARGET)
-	@echo "Installing mutate_seq to /usr/local/bin (may require sudo)"
-	install -m 755 $(TARGET) /usr/local/bin/mutate_seq
+	@echo "Installing scar to /usr/local/bin (may require sudo)"
+	install -m 755 $(TARGET) /usr/local/bin/scar
 
 # Uninstall
 uninstall:
-	rm -f /usr/local/bin/mutate_seq
+	rm -f /usr/local/bin/scar
 	@echo "Uninstalled"
 
 # Check dependencies
