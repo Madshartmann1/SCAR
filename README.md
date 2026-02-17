@@ -296,9 +296,8 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
     --mutation-rate 0.001
 ```
 
-**Maximum fragment length**: **Required** for all `--fragment-distribution` modes. Fragments sampled above this threshold are **resampled** (not clipped) to avoid artificial peaks at the maximum. This is useful for truncating long tails in distributions.
+**Maximum fragment length**: **Required** for all `--fragment-distribution` modes. Fragments sampled above this threshold are resampled.
 
-**Note**: `--max-fragment-length` must be ≥ `--min-fragment-length`.
 
 ### Fragmentation Behavior
 
