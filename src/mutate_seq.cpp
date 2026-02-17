@@ -801,6 +801,13 @@ std::vector<Mutation> MutationEngine::generateRateBasedMutations(
                         break;
                     }
                     
+                    case MutationMode::CUSTOM_SPECTRUM: {
+                        if (config.mutation_rate > 0) {
+                            mutate = uniform(rng) < config.mutation_rate;
+                        }
+                        break;
+                    }
+                    
                     default:
                         break;
                 }
@@ -1034,7 +1041,7 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
 }
 
 // ============================================================================
-// Fragmentation - Option C Logic
+// Fragmentation Logic
 // ============================================================================
 
 size_t MutationEngine::fragmentSequence(const SequenceEntry& entry, 
