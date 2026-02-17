@@ -1,20 +1,39 @@
 # mutate_seq - High-Performance Sequence Mutation Tool
 
-**Version 0.4* - Production-ready tool for introducing controlled mutations into genomic sequences.
+**Version 0.5* - Tool for introducing controlled mutations into genomic sequences.
 
 ## Overview
 
 `mutate_seq` introduces random mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectra. This tool is designed for researchers and bioinformaticians who need to simulate sequence variation with precise control over mutation patterns.
 
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Mutation Modes](#mutation-modes)
+- [Ancient DNA Damage Simulation](#ancient-dna-damage-simulation)
+- [DNA Fragmentation](#dna-fragmentation)
+- [Output Files](#output-files)
+- [Processing Modes](#processing-modes)
+- [Troubleshooting](#troubleshooting)
+- [Technical Details](#technical-details)
+- [Citation](#citation)
+- [Contact](#contact)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+
 ## Installation
+### Clone Repository
 
-Something about using gihub to get this tool down local 
-
-### Requirements
-- C++11 compiler (g++ 4.8+)
-- zlib library (`zlib1g-dev` on Ubuntu/Debian)
-- pthread support
-
+```bash
+git clone https://github.com/Madshartmann1/mutation_tool.git
+cd mutation_tool
+```
 ### Build
 ```bash
 make
@@ -25,34 +44,41 @@ Check dependencies:
 make check-deps
 ```
 
+### Requirements
+- C++11 compiler (g++ 4.8+)
+- zlib library (`zlib1g-dev` on Ubuntu/Debian)
+- pthread support
+
 ## Usage
 
 ### Basic Syntax
 ```bash
 ./mutate_seq --input <file> --output <prefix> [mutation_mode] [options]
 ```
-
+<!---
 ### Quick Examples
 
 #### 1. Flat Mutation Rate (0.1%)
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 #### 2. Fixed Number of Mutations
 ```bash
-./mutate_seq --input genome.fa --output mutated --num-mutations 1000 --seed 42
+./mutate_seq --input genome.fa --output mutated --num-mutations 1000 --seed 27
 ```
 
 #### 3. Ts/Tv Ratio Control
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
 #### 4. Multi-threaded FASTQ Processing
 ```bash
-./mutate_seq --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 42
+./mutate_seq --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 27
 ```
+--->
+
 
 ## Mutation Modes
 
@@ -60,14 +86,14 @@ make check-deps
 Applies uniform mutation rate across all substitution types.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 ### Mode 2: Flat Number (`--num-mutations`)
 Introduces exactly N mutations across the entire dataset.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --num-mutations 500 --seed 42
+./mutate_seq --input genome.fa --output mutated --num-mutations 500 --seed 27
 ```
 
 **Note**: Requires in-memory mode (not available for streaming).
@@ -76,69 +102,244 @@ Introduces exactly N mutations across the entire dataset.
 Specifies different rates for transitions and transversions.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 42
+./mutate_seq --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 27
 ```
 
 ### Mode 4: Ts/Tv Ratio (`--mutation-rate` + `--ts-tv-ratio`)
 Sets overall mutation rate with specified Ts/Tv ratio.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 42
+./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
 **Calculation**: `ts_rate = rate × ratio / (ratio + 1)`, `tv_rate = rate / (ratio + 1)`
 
 ### Mode 5: Custom Mutation Matrix (`--mutation-matrix` + `--mutation-rate`)
-Per-substitution-type mutation rates for maximum control.
+
+**Full control over every mutation rate directly.** A certain bases mutation rate is the sum of its parts. 
+
+**Example**: If A→G:0.005 + A→C:0.02 + A→T:0.01, then A bases mutate at 0.035% total. If C→A:0.008 + C→G:0.012 + C→A:0.022, then C bases mutate at 0.062% total.
+
 
 **Matrix file format** (`mutation_matrix.txt`):
 ```
 # Format: from_base  to_base  relative_rate
-A       C       0.5
-A       G       2.0
-A       T       1.0
-C       A       0.8
-C       G       1.2
-C       T       2.5
-G       A       2.2
-G       C       0.9
-G       T       1.1
-T       A       1.0
-T       C       2.3
-T       G       0.7
+A       C       0.005
+A       G       0.02
+A       T       0.01
+C       A       0.008
+C       G       0.012
+C       T       0.025
+G       A       0.022
+G       C       0.009
+G       T       0.011
+T       A       0.01
+T       C       0.023
+T       G       0.007
 ```
 
 ```bash
 ./mutate_seq --input genome.fa --output mutated \
-    --mutation-matrix mutation_matrix.txt --mutation-rate 0.001 --seed 42
+    --mutation-matrix mutation_matrix.txt --mutation-rate 1 --seed 27
 ```
 
-### Mode 6: Custom Mutation Spectrum (`--mutation-spectrum` + `--mutation-rate`)
-Proportional distribution of mutations (values normalized to sum=1).
+
+**PS: The Mutation rate is currently igonred for the matrix**
+
+### Mode 6: Custom Mutation Spectrum (`--mutation-spectrum` + `--mutation-rate` or `--num-mutations`)
+
+**All bases mutate at the same rate; spectrum controls the distribution of mutation types.** Values are normalized so all 12 substitution types sum to 1.0.
+
+**Example**: With `--mutation-rate 0.006`, all bases mutate at 0.6%. If a bases then mutates, the spectrum determines that 50% of the mutations starting from A is A→G etc. See spectrum example below.
 
 **Spectrum file format** (`mutation_spectrum.txt`):
 ```
 # Format: from_base  to_base  proportion
 # Values will be normalized to sum to 1
 # Example: Transition-biased spectrum
-A       G       2.0
-G       A       2.0
-C       T       2.0
-T       C       2.0
 A       C       1.0
+A       G       2.0
 A       T       1.0
 C       A       1.0
 C       G       1.0
+C       T       2.0
+G       A       2.0
 G       C       1.0
 G       T       1.0
 T       A       1.0
+T       C       2.0
 T       G       1.0
 ```
 
 ```bash
 ./mutate_seq --input genome.fa --output mutated \
-    --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 42
+    --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 27
 ```
+
+## Ancient DNA Damage Simulation
+
+`mutate_seq` can simulate position-dependent ancient DNA (aDNA) damage patterns, example:
+- **C→T deamination** enriched at 5' fragment ends
+- **G→A deamination** enriched at 3' fragment ends  
+- **Exponential decay** of damage signal away from fragment ends
+
+Ancient damage can be **combined with any mutation mode** (or used standalone).
+
+
+**Just damage (`--ancient-damage`)**
+```bash
+./mutate_seq --input reads.fastq.gz --output damaged \
+    --ancient-damage damage_profiles/double_stranded_damage.txt \
+    --threads 8
+```
+
+**Damage + mutation rate + Ts/Tv ratio (`--ancient-damage`+`--mutation-rate`+`--ts-tv-ratio`)**
+```bash
+./mutate_seq --input reads.fastq.gz --output evolved_damaged \
+    --mutation-rate 0.001 --ts-tv-ratio 2.0 \
+    --ancient-damage damage_profiles/single_stranded_damage.txt \
+    --threads 8
+```
+
+
+**Damage + Background mutations (`--ancient-damage`+`--background-rate`)**
+
+Background rate only effects poistions left untouched by the damage profile. 
+```bash
+./mutate_seq --input reads.fastq.gz --output complex \
+    --ancient-damage damage_profiles/double_stranded_damage.txt \
+    --background-rate 0.0001 \
+    --threads 8
+```
+
+**See also**: [damage_profiles/](damage_profiles/) directory for detailed damage profile documentation.
+
+---
+
+## DNA Fragmentation
+
+`mutate_seq` can fragment long sequences into realistic DNA fragment length distributions.
+
+**Processing order**: Fragmentation happens **first**, then mutations, then damage (if enabled).
+
+### Fragmentation Modes
+
+#### 1. Static Length (Fixed Size)
+
+All fragments exactly N bp:
+```bash
+./mutate_seq --input genome.fa --output fragments \
+    --fragment-length 100 \
+    --mutation-rate 0.001
+```
+
+#### 2. Empirical / Costum Distribution
+
+Sample from observed fragment lengths (e.g., from ancient DNA datasets):
+```bash
+./mutate_seq --input genome.fa --output ancient_frags \
+    --fragment-distribution empirical \
+    --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
+    --mutation-rate 0.001
+```
+
+**Included distribution**: `ancient_dist_chagyrskaya8.txt` contains 1,000,001 fragment lengths from Chagyrskaya 8 Neanderthal sample (mean ~60bp, range 35-130bp).
+
+**Custom distributions**: Provide a text file with one fragment length per line:
+```
+50
+75
+60
+48
+```
+
+#### 3. Exponental Distribution
+
+```bash
+./mutate_seq --input genome.fa --output frags \
+    --fragment-distribution exponential \
+    --mean-length 80 \
+    --mutation-rate 0.001
+```
+
+#### 4. Normal Distribution
+
+```bash
+./mutate_seq --input genome.fa --output frags \
+    --fragment-distribution normal \
+    --mean-length 150 \
+    --sd-length 30 \
+    --mutation-rate 0.001
+```
+
+#### 5. Lognormal Distribution
+
+```bash
+./mutate_seq --input genome.fa --output frags \
+    --fragment-distribution lognormal \
+    --mean-length 100 \
+    --sd-length 50 \
+    --mutation-rate 0.001
+```
+
+### Minimum Fragment Length Filtering
+
+By default, fragments shorter than **20bp** are discarded. Change this threshold:
+
+```bash
+./mutate_seq --input genome.fa --output frags \
+    --fragment-distribution empirical \
+    --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
+    --min-fragment-length 30 \
+    --mutation-rate 0.001
+```
+
+### Fragmentation Behavior
+
+**Input**: One sequence (e.g., chromosome or long read)  
+**Output**: Multiple fragments with sequential naming:
+```
+>chr1_frag1
+ACGTACGT...
+>chr1_frag2  
+TGCAGCTA...
+>chr1_frag3
+CGATCGAT...
+```
+
+**Fragment size selection**:
+1. Sample a fragment length from the distribution
+2. If length > remaining sequence → check if remainder ≥ min_fragment_length
+   - If yes: keep short fragment
+   - If no: discard remainder
+3. If entire read < first sampled length → discard entire read 
+4. Extract new read and do step 1
+
+
+### Complete Ancient DNA Simulation Example
+
+Combine fragmentation + mutations + damage for realistic ancient DNA:
+
+```bash
+./mutate_seq --input modern_reference.fa --output ancient_sample \
+    --fragment-distribution empirical \
+    --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
+    --min-fragment-length 30 \
+    --mutation-rate 0.0015 --ts-tv-ratio 2.0 \
+    --ancient-damage damage_profiles/single_stranded_damage.txt \
+    --background-rate 0.0001 \
+    --threads 8 --seed 27
+```
+
+**This simulates**:
+1. **Fragmentation**: Realistic ancient fragment lengths (30-130bp)
+2. **Evolutionary divergence**: 0.15% substitutions with Ts/Tv bias
+3. **Ancient damage**: C→T/G→A at fragment ends
+4. **Background mutations**: Additional 0.01% random substitutions
+
+
+<!---
+---
 
 ## Pipeline Integration Example
 
@@ -183,13 +384,28 @@ done
 - `--mutation-rate FLOAT --ts-tv-ratio FLOAT`: Overall rate + Ts/Tv ratio
 - `--mutation-matrix FILE --mutation-rate FLOAT`: Custom per-type rates
 - `--mutation-spectrum FILE --mutation-rate FLOAT`: Custom proportional spectrum
+Ancient DNA Damage
+- `--ancient-damage FILE`: Position-dependent damage profile
+- `--background-rate FLOAT`: Additional uniform mutation rate
 
+### DNA Fragmentation  
+- `--fragment-length INT`: Static fragment length (all N bp)
+- `--fragment-distribution TYPE`: Distribution type (empirical, exponential, normal, lognormal)
+- `--fragment-distribution-file FILE`: Empirical distribution (one length per line)
+- `--mean-length INT`: Mean for parametric distributions
+- `--sd-length INT`: Standard deviation (normal/lognormal)
+- `--min-fragment-length INT`: Minimum fragment to keep (default: 20)
+
+### 
 ### Optional
-- `--seed INT`: Random seed for reproducibility (default: 42)
+- `--seed INT`: Random seed for reproducibility (default: 27)
 - `--threads INT`: Number of threads (default: 4, min: 1)
 - `--chunk-size INT`: Sequences per chunk in streaming mode (default: 10000)
 - `--format [fasta|fastq]`: Force format (auto-detected if omitted)
-- `--force-streaming`: Force streaming mode even for FASTA
+
+---
+--->
+
 
 ## Output Files
 
@@ -224,16 +440,6 @@ Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 - **Best for**: Large FASTQ files (50GB+), read datasets
 - **Memory usage**: ~50-100MB regardless of file size
 - **Threads**: 1 producer + (N-1) workers (min 2 threads required)
-
-
-### Test Suite
-```bash
-# Generate test data
-python generate_test_data.py
-
-# Test all modes
-make -f Makefile test
-```
 
 
 ## Troubleshooting
