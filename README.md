@@ -105,7 +105,8 @@ Specifies different rates for transitions and transversions.
 Sets overall mutation rate with specified Ts/Tv ratio.
 
 ```bash
-./mutate_seq --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
+./mutate_seq --input genome.fa --output mutated \
+ --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
 **Calculation**: `ts_rate = rate × ratio / (ratio + 1)`, `tv_rate = rate / (ratio + 1)`
