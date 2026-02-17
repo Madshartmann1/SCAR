@@ -353,6 +353,11 @@ Format matches input:
 - Input: `genome.fa` → Output: `prefix.fa`
 - Input: `reads.fastq.gz` → Output: `prefix.fastq.gz`
 
+**Gzip compression**: Output compression matches input by default. Use `--gz` to force compression of uncompressed input:
+- `genome.fa` + `--gz` → `prefix.fa.gz` (compressed output from plain input)
+- `genome.fa` (no --gz) → `prefix.fa` (plain output from plain input)
+- `reads.fastq.gz` → `prefix.fastq.gz` (compressed output from compressed input)
+
 ### SNP File (`prefix.snp`)
 Seqtk-compatible format (tab-delimited):
 ```

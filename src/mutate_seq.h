@@ -161,6 +161,7 @@ struct Config {
     unsigned int seed = 0;              // Random seed (0 = use time)
     bool exclude_N = true;              // Skip N bases
     bool report_stats = true;           // Print statistics report
+    bool compress_output = false;       // Force gzip compression of output
 };
 
 // ============================================================================
@@ -434,18 +435,21 @@ public:
  */
 class GzipFile {
 private:
-    gzFile file;                // zlib file handle
+    gzFile file;                // zlib file handle (compressed)
+    FILE* plain_file;           // Standard file handle (uncompressed)
     std::string filename;       // File path
     bool is_open;               // Open status
+    bool use_compression;       // Whether to use compression
     
 public:
     /**
-     * Open a file (auto-detects gzip compression)
+     * Open a file
      * @param path File path
      * @param mode Open mode ("r" or "w")
+     * @param compress Whether to use compression (for writing; reading auto-detects)
      * @throws runtime_error if file cannot be opened
      */
-    GzipFile(const std::string& path, const char* mode);
+    GzipFile(const std::string& path, const char* mode, bool compress = true);
     
     /**
      * Destructor - closes file if open
