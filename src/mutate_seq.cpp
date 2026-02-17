@@ -1058,7 +1058,21 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
     // Sample first fragment length
     size_t first_sample = fragment_dist.sample();
     
-    // OPTION C: If first sample > entire read length, discard entire read
+    // Resample if over max length (avoid infinite loop with max attempts)
+    if (config.max_fragment_length > 0) {
+        int resample_attempts = 0;
+        const int MAX_RESAMPLE_ATTEMPTS = 100;
+        while (first_sample > config.max_fragment_length && resample_attempts < MAX_RESAMPLE_ATTEMPTS) {
+            first_sample = fragment_dist.sample();
+            resample_attempts++;
+        }
+        // If still over max after 100 attempts, use max (distribution has very long tail)
+        if (first_sample > config.max_fragment_length) {
+            first_sample = config.max_fragment_length;
+        }
+    }
+    
+    // If first sample > entire read length, discard entire read
     if (first_sample > input_length) {
         frag_reads_too_short.fetch_add(1);
         frag_bases_discarded.fetch_add(input_length);
@@ -1071,12 +1085,28 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
     
     while (pos < input_length) {
         size_t fragment_length = (fragment_num == 1) ? first_sample : fragment_dist.sample();
+        
+        // Resample if over max length (avoid infinite loop with max attempts)
+        if (config.max_fragment_length > 0 && fragment_num > 1) {
+            int resample_attempts = 0;
+            const int MAX_RESAMPLE_ATTEMPTS = 100;
+            while (fragment_length > config.max_fragment_length && resample_attempts < MAX_RESAMPLE_ATTEMPTS) {
+                fragment_length = fragment_dist.sample();
+                resample_attempts++;
+            }
+            // If still over max after 100 attempts, use max (distribution has very long tail)
+            if (fragment_length > config.max_fragment_length) {
+                fragment_length = config.max_fragment_length;
+            }
+        }
+        
         size_t remaining = input_length - pos;
         
         // Check if sampled length fits in remaining sequence
         if (fragment_length > remaining) {
             // Can't use this sample, check if remainder is worth keeping
-            if (remaining >= config.min_fragment_length) {
+            if (remaining >= config.min_fragment_length && 
+                (config.max_fragment_length == 0 || remaining <= config.max_fragment_length)) {
                 // Keep short fragment
                 std::string frag_id = entry.id + "_frag" + std::to_string(fragment_num);
                 std::string frag_seq = entry.sequence.substr(pos, remaining);
@@ -1087,7 +1117,7 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
                 frag_short_fragments.fetch_add(1);
                 frag_bases_in_fragments.fetch_add(remaining);
             } else {
-                // Too short, discard
+                // Too short or too long, discard
                 frag_bases_discarded.fetch_add(remaining);
             }
             break;  // Done with this read
@@ -1896,6 +1926,16 @@ Config ArgumentParser::parse() {
     
     if (hasOption("--fragment-distribution", "--fd")) {
         std::string dist = getOptionValue("--fragment-distribution", "--fd");
+        
+        // All fragment distributions require max-fragment-length
+        if (!hasOption("--max-fragment-length", "--maxfl")) {
+            throw std::runtime_error("--fragment-distribution requires --max-fragment-length / --maxfl");
+        }
+        config.max_fragment_length = std::stoull(getOptionValue("--max-fragment-length", "--maxfl"));
+        if (config.max_fragment_length == 0) {
+            throw std::runtime_error("--max-fragment-length / --maxfl must be > 0");
+        }
+        
         if (dist == "empirical") {
             config.fragment_mode = FragmentDistribution::EMPIRICAL;
             if (!hasOption("--fragment-distribution-file", "--fdf")) {
@@ -1933,6 +1973,11 @@ Config ArgumentParser::parse() {
         if (config.min_fragment_length == 0) {
             throw std::runtime_error("--min-fragment-length / --mfl must be > 0");
         }
+    }
+    
+    // Validate that max > min if both are set
+    if (config.max_fragment_length > 0 && config.max_fragment_length < config.min_fragment_length) {
+        throw std::runtime_error("--max-fragment-length must be >= --min-fragment-length");
     }
     
     return config;

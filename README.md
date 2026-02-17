@@ -237,6 +237,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 ./mutate_seq --input genome.fa --output ancient_frags \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
+    --max-fragment-length 150 \
     --mutation-rate 0.001
 ```
 
@@ -256,6 +257,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 ./mutate_seq --input genome.fa --output frags \
     --fragment-distribution exponential \
     --mean-length 80 \
+    --max-fragment-length 200 \
     --mutation-rate 0.001
 ```
 
@@ -266,6 +268,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
     --fragment-distribution normal \
     --mean-length 150 \
     --sd-length 30 \
+    --max-fragment-length 250 \
     --mutation-rate 0.001
 ```
 
@@ -276,20 +279,26 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
     --fragment-distribution lognormal \
     --mean-length 100 \
     --sd-length 50 \
+    --max-fragment-length 300 \
     --mutation-rate 0.001
 ```
 
-### Minimum Fragment Length Filtering
+### Fragment Length Filtering
 
-By default, fragments shorter than **20bp** are discarded. Change this threshold:
+**Minimum fragment length**: By default, fragments shorter than **20bp** are discarded. Change this threshold:
 
 ```bash
 ./mutate_seq --input genome.fa --output frags \
     --fragment-distribution empirical \
     --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
+    --max-fragment-length 150 \
     --min-fragment-length 30 \
     --mutation-rate 0.001
 ```
+
+**Maximum fragment length**: **Required** for all `--fragment-distribution` modes. Fragments sampled above this threshold are **resampled** (not clipped) to avoid artificial peaks at the maximum. This is useful for truncating long tails in distributions.
+
+**Note**: `--max-fragment-length` must be ≥ `--min-fragment-length`.
 
 ### Fragmentation Behavior
 
@@ -306,7 +315,7 @@ CGATCGAT...
 
 **Fragment size selection**:
 1. Sample a fragment length from the distribution
-2. If length > remaining sequence → check if remainder ≥ min_fragment_length
+2. If length < remaining sequence → check if remainder ≥ min_fragment_length
    - If yes: keep short fragment
    - If no: discard remainder
 3. If entire read < first sampled length → discard entire read 
@@ -321,6 +330,7 @@ Combine fragmentation + mutations + damage for realistic ancient DNA:
 ./mutate_seq --input modern_reference.fa --output ancient_sample \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
+    --max-fragment-length 150 \
     --min-fragment-length 30 \
     --mutation-rate 0.0015 --ts-tv-ratio 2.0 \
     --ancient-damage damage_profiles/single_stranded_damage.txt \
@@ -335,73 +345,6 @@ Combine fragmentation + mutations + damage for realistic ancient DNA:
 4. **Background mutations**: Additional 0.01% random substitutions
 
 
-<!---
----
-
-## Pipeline Integration Example
-
-Example workflow for simulating sequences with varying divergence levels for read simulation:
-
-```bash
-# Step 1: Generate reference variants with different mutation levels
-REFERENCE="reference_genome.fa"
-SEED=12345
-
-# Baseline: no mutations
-cp ${REFERENCE} sample_baseline.fa
-
-# High divergence: 0.1% mutation rate
-./mutate_seq --input ${REFERENCE} --output sample_high \
-    --mutation-rate 0.001 --threads 8 --seed ${SEED}
-
-# Low divergence: 0.01% mutation rate
-./mutate_seq --input ${REFERENCE} --output sample_low \
-    --mutation-rate 0.0001 --threads 8 --seed $((SEED + 1))
-
-# Step 2: Simulate sequencing reads (example using ART)
-for variant in baseline high low; do
-    art_illumina -ss HS25 -i sample_${variant}.fa -l 150 -f 30 \
-        -o sample_${variant}_reads -rs ${SEED}
-done
-
-# Step 3: SNP tracking files are available for analysis
-# Files generated: sample_high.snp and sample_low.snp
-```
-
-## Command-Line Options
-
-### Required
-- `--input FILE`: Input FASTA/FASTQ file (plain or gzipped)
-- `--output PREFIX`: Output file prefix (format auto-matches input)
-
-### Mutation Mode
-- `--mutation-rate FLOAT`: Uniform mutation rate (0.0-1.0)
-- `--num-mutations INT`: Fixed number of mutations
-- `--ts-rate FLOAT --tv-rate FLOAT`: Separate transition/transversion rates
-- `--mutation-rate FLOAT --ts-tv-ratio FLOAT`: Overall rate + Ts/Tv ratio
-- `--mutation-matrix FILE --mutation-rate FLOAT`: Custom per-type rates
-- `--mutation-spectrum FILE --mutation-rate FLOAT`: Custom proportional spectrum
-Ancient DNA Damage
-- `--ancient-damage FILE`: Position-dependent damage profile
-- `--background-rate FLOAT`: Additional uniform mutation rate
-
-### DNA Fragmentation  
-- `--fragment-length INT`: Static fragment length (all N bp)
-- `--fragment-distribution TYPE`: Distribution type (empirical, exponential, normal, lognormal)
-- `--fragment-distribution-file FILE`: Empirical distribution (one length per line)
-- `--mean-length INT`: Mean for parametric distributions
-- `--sd-length INT`: Standard deviation (normal/lognormal)
-- `--min-fragment-length INT`: Minimum fragment to keep (default: 20)
-
-### 
-### Optional
-- `--seed INT`: Random seed for reproducibility (default: 27)
-- `--threads INT`: Number of threads (default: 4, min: 1)
-- `--chunk-size INT`: Sequences per chunk in streaming mode (default: 10000)
-- `--format [fasta|fastq]`: Force format (auto-detected if omitted)
-
----
---->
 
 
 ## Output Files

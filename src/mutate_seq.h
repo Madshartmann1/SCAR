@@ -146,6 +146,7 @@ struct Config {
     FragmentDistribution fragment_mode = FragmentDistribution::NONE;  // Fragmentation mode
     size_t fragment_length = 0;         // Static fragment length
     size_t min_fragment_length = 20;    // Minimum fragment length to keep
+    size_t max_fragment_length = 0;     // Maximum fragment length (required for distributions)
     std::string fragment_dist_file;     // Empirical distribution file
     double fragment_mean = 0.0;         // Mean for parametric distributions
     double fragment_sd = 0.0;           // Std dev for parametric distributions
