@@ -1,8 +1,8 @@
-# mutate_seq - High-Performance Sequence Mutation Tool
+# SCAR — Sequences + Controlled mutations + Ancient damage + fRagmentation
 
 **Version 0.5* 
 
-`mutate_seq` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
+`SCAR` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
 
 ## Table of Contents
 
