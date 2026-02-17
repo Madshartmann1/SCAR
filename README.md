@@ -1,14 +1,11 @@
 # mutate_seq - High-Performance Sequence Mutation Tool
 
-**Version 0.5* - Tool for introducing controlled mutations into genomic sequences.
-
-## Overview
+**Version 0.5* 
 
 `mutate_seq` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Mutation Modes](#mutation-modes)
