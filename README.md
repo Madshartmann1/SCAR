@@ -4,8 +4,7 @@
 
 ## Overview
 
-`mutate_seq` introduces mutations into DNA sequences (FASTA or FASTQ format) at specified rates or with custom mutation spectrums. This tool is designed for researchers and bioinformaticians who need to simulate sequence variation with precise control over mutation patterns.
-
+`mutate_seq` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
 
 ## Table of Contents
 

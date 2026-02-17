@@ -1940,7 +1940,7 @@ Config ArgumentParser::parse() {
 
 void ArgumentParser::printUsage() const {
     std::cout << R"(
-mutate_seq - Sequence Mutation Tool v0.4
+mutate_seq - Sequence Mutation Tool v0.5
 Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences
 
 Usage: mutate_seq [options]
@@ -1984,14 +1984,9 @@ Processing pipeline:
   2. Apply mutations (evolutionary divergence)
   3. Apply ancient DNA damage (if enabled)
 
-Processing modes:
-  - Reference genomes (FASTA): In-memory mode for detailed statistics
-  - Read files (FASTQ): Streaming mode with multi-threading
-  - Large files: Automatically uses streaming to minimize memory usage
-
-Examples:
+  Examples:
   # Reference genome with uniform mutations
-  mutate_seq -i ref.fa -o mutated -r 0.001 -s 42
+  mutate_seq -i ref.fa -o mutated -r 0.001 -s 27
 
   # Read file with Ts/Tv biased mutations (8 threads)
   mutate_seq -i reads.fastq.gz -o mutated \
@@ -2001,16 +1996,10 @@ Examples:
   mutate_seq -i reads.fastq.gz -o damaged \
              -d damage_profiles/double_stranded_damage.txt
 
-  # STACKED: Evolutionary divergence + ancient damage
+  # Uniform mutation + ancient damage
   mutate_seq -i reads.fastq.gz -o evolved_damaged \
              -r 0.001 --ts-tv-ratio 2.0 \
              -d damage_profiles/double_stranded_damage.txt -t 8
-
-  # STACKED: Custom matrix + ancient damage + background mutations
-  mutate_seq -i reads.fq.gz -o complex \
-             --mutation-matrix custom.txt -r 0.0001 \
-             -d damage_profiles/single_stranded_damage.txt \
-             --background-rate 0.00005
 
   # DNA fragmentation: static length 50bp
   mutate_seq -i genome.fa -o fragmented \
@@ -2022,11 +2011,6 @@ Examples:
              --fd empirical \
              --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt
 
-  # DNA fragmentation: exponential distribution (mean 60bp)
-  mutate_seq -i genome.fa -o frags \
-             -r 0.001 \
-             --fd exponential --ml 60
-
   # FULL STACK: Fragmentation + Mutations + Damage (ancient DNA simulation)
   mutate_seq -i genome.fa -o ancient_sim \
              --fd empirical \
@@ -2034,21 +2018,10 @@ Examples:
              -r 0.001 --ts-tv-ratio 2.0 \
              -d damage_profiles/single_stranded_damage.txt
 
-  # Custom mutation spectrum with 1000 mutations
-  mutate_seq --input reads.fq.gz --output mut \
-             --mutation-spectrum spectrum.txt --num-mutations 1000
 
 Output files:
   <prefix>.fa / .fastq[.gz]  - Mutated sequences (format matches input)
   <prefix>.snp               - SNP receipt (seqtk format: chr pos original new)
-
-Features:
-  Automatic format detection (FASTA/FASTQ)
-  Automatic gzip handling (input and output)
-  Multi-threaded streaming for large files
-  Quality scores preserved in FASTQ
-  Multiple mutation models supported
-  Progress reporting for long-running jobs
 
 For more information, see README.md
 )" << std::endl;
