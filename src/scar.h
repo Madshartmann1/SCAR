@@ -150,6 +150,7 @@ struct Config {
     std::string fragment_dist_file;     // Empirical distribution file
     double fragment_mean = 0.0;         // Mean for parametric distributions
     double fragment_sd = 0.0;           // Std dev for parametric distributions
+    bool allow_fasta_fragmentation = false;  // Allow fragmentation/damage on FASTA (not recommended)
     
     // Threading and streaming parameters
     unsigned int num_threads = 4;       // Number of worker threads (default: 4)
@@ -162,6 +163,7 @@ struct Config {
     bool exclude_N = true;              // Skip N bases
     bool report_stats = true;           // Print statistics report
     bool compress_output = false;       // Force gzip compression of output
+    
 };
 
 // ============================================================================

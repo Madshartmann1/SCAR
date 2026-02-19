@@ -1668,6 +1668,22 @@ int MutationEngine::run() {
         std::cout << "Format: " << format_str << compression_str << "\n";
         std::cout << "Random seed: " << config.seed << "\n\n";
         
+        // Validate FASTA + fragmentation/damage combination
+        if (format == FileFormat::FASTA && 
+            !config.allow_fasta_fragmentation &&
+            (fragment_dist.isEnabled() || !config.damage_file.empty())) {
+            
+            std::string msg = "\nError: Fragmentation and/or ancient damage specified with FASTA input.\n\n";
+            msg += "FASTA output lacks base quality scores needed for realistic read simulation.\n\n";
+            msg += "Recommended workflow for ancient DNA simulation:\n";
+            msg += "  1. Use a read simulator (ART, wgsim, etc.) to generate FASTQ from reference\n";
+            msg += "  2. Apply mutations and damage to FASTQ:\n";
+            msg += "     ./bin/scar -i simulated.fastq -o ancient -r 0.001 -d damage.txt\n\n";
+            msg += "If you specifically need FASTA fragmentation/damage (e.g., for testing),\n";
+            msg += "use: --allow-fasta-fragmentation\n";
+            throw std::runtime_error(msg);
+        }
+        
         // Decide between streaming and in-memory mode
         // Use streaming for FASTQ or if forced
         bool use_streaming = (format == FileFormat::FASTQ) || config.force_streaming;
@@ -1976,6 +1992,11 @@ Config ArgumentParser::parse() {
         config.compress_output = true;
     }
     
+    // Allow FASTA fragmentation override
+    if (hasOption("--allow-fasta-fragmentation")) {
+        config.allow_fasta_fragmentation = true;
+    }
+    
     return config;
 }
 
@@ -2012,6 +2033,7 @@ DNA fragmentation (OPTIONAL, can be combined with any mode above):
   --ml, --mean-length <N>          Mean fragment length (exponential/normal/lognormal)
   --sl, --sd-length <N>            Standard deviation (normal/lognormal)
   --mfl, --min-fragment-length <N> Minimum fragment to keep (default: 20 bp)
+  --allow-fasta-fragmentation   Allow fragmentation/damage on FASTA (not recommended)
 
 Optional arguments:
   -s, --seed <N>        Random seed for reproducibility (default: current time)

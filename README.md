@@ -215,9 +215,11 @@ Background rate only effects poistions left untouched by the damage profile.
 
 ## DNA Fragmentation
 
-`mutate_seq` can fragment long sequences into realistic DNA fragment length distributions.
+`scar` can fragment long sequences into realistic DNA fragment length distributions.
 
 **Processing order**: Fragmentation happens **first**, then mutations, then damage (if enabled).
+
+**FASTA Safeguard**: Fragmentation and/or ancient damage with FASTA input is blocked by default (FASTA lacks base quality scores needed for realistic reads). Use a read simulator (ART, wgsim, etc.) to generate FASTQ first, or override with `--allow-fasta-fragmentation` for testing purposes.
 
 ### Fragmentation Modes
 
