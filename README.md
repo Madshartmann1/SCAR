@@ -227,7 +227,7 @@ Background rate only effects poistions left untouched by the damage profile.
 
 All fragments exactly N bp:
 ```bash
-./scar --input genome.fa --output fragments \
+./scar --input reads.fastq.gz --output fragments \
     --fragment-length 100 \
     --mutation-rate 0.001
 ```
@@ -236,7 +236,7 @@ All fragments exactly N bp:
 
 Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 ```bash
-./scar --input genome.fa --output ancient_frags \
+./scar --input reads.fastq.gz --output ancient_frags \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \
@@ -256,7 +256,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 3. Exponental Distribution
 
 ```bash
-./scar --input genome.fa --output frags \
+./scar --input reads.fastq.gz --output frags \
     --fragment-distribution exponential \
     --mean-length 80 \
     --max-fragment-length 200 \
@@ -266,7 +266,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 4. Normal Distribution
 
 ```bash
-./scar --input genome.fa --output frags \
+./scar --input reads.fastq.gz --output frags \
     --fragment-distribution normal \
     --mean-length 150 \
     --sd-length 30 \
@@ -277,7 +277,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 #### 5. Lognormal Distribution
 
 ```bash
-./scar --input genome.fa --output frags \
+./scar --input reads.fastq.gz --output frags \
     --fragment-distribution lognormal \
     --mean-length 100 \
     --sd-length 50 \
@@ -290,7 +290,7 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 **Minimum fragment length**: By default, fragments shorter than **20bp** are discarded. Change this threshold:
 
 ```bash
-./scar --input genome.fa --output frags \
+./scar --input reads.fastq.gz --output frags \
     --fragment-distribution empirical \
     --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \
@@ -330,7 +330,9 @@ CGATCGAT...
 Combine fragmentation + mutations + damage for realistic ancient DNA:
 
 ```bash
-./scar --input modern_reference.fa --output ancient_sample \
+# First generate FASTQ reads from reference using ART or similar read simulator
+# Then apply fragmentation, mutations, and damage:
+./scar --input simulated_reads.fastq.gz --output ancient_sample \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --max-fragment-length 150 \

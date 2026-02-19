@@ -2066,19 +2066,21 @@ Processing pipeline:
              -d damage_profiles/double_stranded_damage.txt -t 8
 
   # DNA fragmentation: static length 50bp
-  scar -i genome.fa -o fragmented \
+  scar -i reads.fastq.gz -o fragmented \
              -r 0.001 -f 50
 
   # DNA fragmentation: ancient empirical distribution
-  scar -i genome.fa -o ancient_frags \
+  scar -i reads.fastq.gz -o ancient_frags \
              -r 0.001 \
              --fd empirical \
-             --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt
+             --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt \
+             --max-fragment-length 150
 
   # FULL STACK: Fragmentation + Mutations + Damage (ancient DNA simulation)
-  scar -i genome.fa -o ancient_sim \
+  scar -i reads.fastq.gz -o ancient_sim \
              --fd empirical \
              --fdf fragment_distributions/ancient_dist_chagyrskaya8.txt \
+             --max-fragment-length 150 \
              -r 0.001 --ts-tv-ratio 2.0 \
              -d damage_profiles/single_stranded_damage.txt
 
