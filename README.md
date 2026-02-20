@@ -27,7 +27,7 @@
 ### Clone Repository
 
 ```bash
-git clone https://github.com/Madshartmann1/mutation_tool.git
+git clone https://github.com/Madshartmann1/SCAR.git
 cd mutation_tool
 ```
 ### Build
