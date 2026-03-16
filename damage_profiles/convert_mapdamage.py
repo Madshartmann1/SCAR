@@ -70,15 +70,19 @@ def parse_mapdamage(filename):
     
     return data
 
-def calculate_frequencies(data, max_positions=25):
+def calculate_frequencies(data, max_positions=None):
     """Calculate damage frequencies from mapDamage data."""
     results = []
     
     for end in ['5p', '3p']:
-        if end not in data:
+        if end not in data or not data[end]:
             continue
         
-        for pos in range(1, max_positions + 1):
+        # Determine the maximum position to process
+        end_max = max(data[end].keys())
+        limit = min(end_max, max_positions) if max_positions else end_max
+        
+        for pos in range(1, limit + 1):
             if pos not in data[end]:
                 continue
             
@@ -112,8 +116,8 @@ def main():
     parser = argparse.ArgumentParser(description='Convert mapDamage output to simplified damage profile')
     parser.add_argument('input', help='mapDamage misincorporation.txt file')
     parser.add_argument('--output', '-o', help='Output file (default: stdout)')
-    parser.add_argument('--max-positions', type=int, default=25, 
-                       help='Maximum positions from read end (default: 25)')
+    parser.add_argument('--max-positions', type=int, default=None, 
+                       help='Optional maximum positions from read end to cap at (default: all available)')
     
     args = parser.parse_args()
     
