@@ -67,6 +67,8 @@ end     position    from    to    frequency
 - **from/to**: Base substitution
 - **frequency**: Damage probability (0.0-1.0)
 
+***Note on profile length vs. read length***: If an input read is longer than the maximum position defined in your damage profile, the tool will automatically carry forward the damage frequency of the *last defined position* and apply it to all remaining positions.
+
 ## Bespoke Damage Profiles - Converting mapDamage Output
 
 If you have your own damage profile, conversion from mapDamage can be done with the provided script to convert `misincorporation.txt` to the format shown above:

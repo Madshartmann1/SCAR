@@ -870,21 +870,34 @@ std::vector<Mutation> MutationEngine::generateRateBasedMutations(
                 size_t dist_from_5p = i + 1;  // 1-based
                 size_t dist_from_3p = seq_length - i;
                 
-                // Check for damage from 5' end (C->T deamination)
-                if (base == 'C') {
-                    double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, 'T');
+                // Cap at maximum position defined in profile to extend damage throughout the read
+                size_t max_pos = damage_profile.getMaxPosition();
+                if (max_pos > 0) {
+                    dist_from_5p = std::min(dist_from_5p, max_pos);
+                    dist_from_3p = std::min(dist_from_3p, max_pos);
+                }
+                
+                // Check all possible damages from 5' end
+                for (char target : {'A', 'C', 'G', 'T'}) {
+                    if (base == target) continue;
+                    double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, target);
                     if (damage_5p > 0 && uniform(rng) < damage_5p) {
                         mutate = true;
-                        new_base = 'T';
+                        new_base = target;
+                        break;
                     }
                 }
                 
-                // Check for damage from 3' end (G->A deamination, if not already mutated)
-                if (!mutate && base == 'G') {
-                    double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, 'A');
-                    if (damage_3p > 0 && uniform(rng) < damage_3p) {
-                        mutate = true;
-                        new_base = 'A';
+                // Check all possible damages from 3' end if not already mutated
+                if (!mutate) {
+                    for (char target : {'A', 'C', 'G', 'T'}) {
+                        if (base == target) continue;
+                        double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, target);
+                        if (damage_3p > 0 && uniform(rng) < damage_3p) {
+                            mutate = true;
+                            new_base = target;
+                            break;
+                        }
                     }
                 }
                 
@@ -1037,21 +1050,34 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
         size_t dist_from_5p = i + 1;  // 1-based
         size_t dist_from_3p = seq_length - i;  // Distance from 3' end
         
-        // Check for damage from 5' end (C->T deamination)
-        if (base == 'C') {
-            double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, 'T');
+        // Cap at maximum position defined in profile to extend damage throughout the read
+        size_t max_pos = damage_profile.getMaxPosition();
+        if (max_pos > 0) {
+            dist_from_5p = std::min(dist_from_5p, max_pos);
+            dist_from_3p = std::min(dist_from_3p, max_pos);
+        }
+        
+        // Check all possible damages from 5' end
+        for (char target : {'A', 'C', 'G', 'T'}) {
+            if (base == target) continue;
+            double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, target);
             if (damage_5p > 0 && uniform(rng) < damage_5p) {
                 mutate = true;
-                new_base = 'T';
+                new_base = target;
+                break;
             }
         }
         
-        // Check for damage from 3' end (G->A deamination, if not already mutated)
-        if (!mutate && base == 'G') {
-            double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, 'A');
-            if (damage_3p > 0 && uniform(rng) < damage_3p) {
-                mutate = true;
-                new_base = 'A';
+        // Check all possible damages from 3' end if not already mutated
+        if (!mutate) {
+            for (char target : {'A', 'C', 'G', 'T'}) {
+                if (base == target) continue;
+                double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, target);
+                if (damage_3p > 0 && uniform(rng) < damage_3p) {
+                    mutate = true;
+                    new_base = target;
+                    break;
+                }
             }
         }
         
