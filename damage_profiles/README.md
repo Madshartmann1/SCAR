@@ -93,6 +93,6 @@ With these profiles, you should observe:
 
 ## References
 
-- **LaBrana**: Olalde et al. (2014). Derived immune and ancestral pigmentation alleles in a 7,000-year-old Mesolithic European. Nature.
-- **Ust_Ishim**: Fu et al. (2014). Genome sequence of a 45,000-year-old modern human from western Siberia. Nature.
-- **mapDamage**: Jónsson et al. (2013). mapDamage2.0: fast approximate Bayesian estimates of ancient DNA damage parameters. Bioinformatics.
+- **Double-stranded example source**: López Mendoza P, González P, Westbury MV, Saghessi D, González Venanzi L, González BA, et al. (2025). Multi-proxy analysis of El Olivar camelids (1,090-1,440 cal AD): Evaluating the presence of llamas (Lama glama, Linnaeus 1758) in the Semiarid North of Chile before the arrival of the Inca. *PLoS ONE* 20(5): e0323497. https://doi.org/10.1371/journal.pone.0323497
+- **Single-stranded example source**: Westbury MV, Hartmann S, Barlow A, Preick M, Hofreiter M. (2020). Hyena paleogenomes reveal a complex evolutionary history of cross-continental gene flow between spotted and cave hyena. *Science Advances* 6(11): eaay0456. https://doi.org/10.1126/sciadv.aay0456
+- **mapDamage method**: Jónsson H, Ginolhac A, Schubert M, Johnson PLF, Orlando L. (2013). mapDamage2.0: fast approximate Bayesian estimates of ancient DNA damage parameters. *Bioinformatics* 29(13): 1682-1684. https://doi.org/10.1093/bioinformatics/btt193
