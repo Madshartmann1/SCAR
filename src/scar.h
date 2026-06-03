@@ -245,7 +245,8 @@ class FragmentLengthDistribution {
 private:
     FragmentDistribution mode;
     size_t static_length;                // For STATIC mode
-    std::vector<size_t> empirical_data;  // For EMPIRICAL mode
+    std::vector<size_t> empirical_lengths;  // For EMPIRICAL mode lengths
+    std::discrete_distribution<size_t> empirical_dist; // For EMPIRICAL mode sampling
     double mean_length;                  // For parametric distributions
     double sd_length;                    // For NORMAL/LOGNORMAL
     std::mt19937* rng_ptr;              // Pointer to RNG (not owned)

@@ -232,20 +232,26 @@ All fragments exactly N bp:
     --mutation-rate 0.001
 ```
 
-#### 2. Empirical / Costum Distribution
+#### 2. Empirical / Custom Distribution
 
-Sample from observed fragment lengths (e.g., from ancient DNA datasets):
+Sample fragment lengths from observed data. Empirical files can be simple length lists,
+weighted length tables, or mapDamage length distribution output.
+
+Example using a generic empirical distribution file:
 ```bash
-./scar --input reads.fastq.gz --output ancient_frags \
+./scar --input input_reads.fastq.gz --output empirical_fragments \
     --fragment-distribution empirical \
-    --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
-    --max-fragment-length 150 \
+    --fragment-distribution-file fragment_lengths.txt \
     --mutation-rate 0.001
 ```
 
+This samples one row at random for each fragment. If the file has one length per
+line, each listed length has equal weight. Repeated values therefore naturally
+increase the probability of that length.
+
 **Included distribution**: `ancient_dist_chagyrskaya8.txt` contains 1,000,001 fragment lengths from Chagyrskaya 8 Neanderthal sample (mean ~60bp, range 35-130bp).
 
-**Custom distributions**: Provide a text file with one fragment length per line:
+**Format 1: one fragment length per line**
 ```
 50
 75
@@ -253,13 +259,54 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 48
 ```
 
+Use this format when you have raw observed fragment lengths. Every row is treated
+as one observation.
+
+**Format 2: weighted length table**
+```
+50 120
+75 450
+100 80
+125 20
+```
+
+The first column is fragment length and the second column is the sampling weight
+or count. In this example, 75 bp fragments are sampled more often than 125 bp
+fragments.
+
+**Format 3: mapDamage length distribution**
+```
+# table produced by mapDamage
+Std	Length	Occurences
++	35	42
++	36	58
++	37	91
+-	35	38
+-	36	61
+```
+
+For mapDamage-style files, `scar` reads the length from the second column and the
+occurrence count from the third column. Comment lines and text headers are skipped
+automatically.
+
+Example using a mapDamage `lgdistribution.txt` file:
+```bash
+./scar --input simulated_reads.fastq.gz --output mapdamage_fragments \
+    --fragment-distribution empirical \
+    --fragment-distribution-file mapdamage_results/lgdistribution.txt \
+    --mutation-rate 0.001 \
+    --seed 27
+```
+
+This uses the observed mapDamage length distribution directly, so lengths with
+higher occurrence counts are sampled more frequently.
+
 #### 3. Exponental Distribution
 
 ```bash
 ./scar --input reads.fastq.gz --output frags \
     --fragment-distribution exponential \
     --mean-length 80 \
-    --max-fragment-length 200 \
     --mutation-rate 0.001
 ```
 
@@ -270,7 +317,6 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
     --fragment-distribution normal \
     --mean-length 150 \
     --sd-length 30 \
-    --max-fragment-length 250 \
     --mutation-rate 0.001
 ```
 
@@ -281,7 +327,6 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
     --fragment-distribution lognormal \
     --mean-length 100 \
     --sd-length 50 \
-    --max-fragment-length 300 \
     --mutation-rate 0.001
 ```
 
@@ -293,12 +338,9 @@ Sample from observed fragment lengths (e.g., from ancient DNA datasets):
 ./scar --input reads.fastq.gz --output frags \
     --fragment-distribution empirical \
     --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
-    --max-fragment-length 150 \
     --min-fragment-length 30 \
     --mutation-rate 0.001
 ```
-
-**Maximum fragment length**: **Required** for all `--fragment-distribution` modes. Fragments sampled above this threshold are resampled.
 
 
 ### Fragmentation Behavior
@@ -316,13 +358,11 @@ CGATCGAT...
 
 **Fragment size selection**:
 1. Sample a fragment length from the distribution
-2. If sampled length > max_fragment_length → resample (up to 100 attempts)
-   - If all attempts exceed max → use max_fragment_length
-3. If length < remaining sequence → check if remainder ≥ min_fragment_length
+2. If the first sampled length is longer than the whole read, discard that read
+3. If a later sampled length is longer than the remaining sequence, keep the remainder only if it is at least `--min-fragment-length`
    - If yes: keep short fragment
    - If no: discard remainder
-4. If entire read < first sampled length → discard entire read 
-5. Extract new read and repeat from step 1
+4. Extract each fragment with sequential `_fragN` names and repeat until the read is consumed
 
 
 ### Complete Ancient DNA Simulation Example
@@ -335,7 +375,6 @@ Combine fragmentation + mutations + damage for realistic ancient DNA:
 ./scar --input simulated_reads.fastq.gz --output ancient_sample \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
-    --max-fragment-length 150 \
     --min-fragment-length 30 \
     --mutation-rate 0.0015 --ts-tv-ratio 2.0 \
     --ancient-damage damage_profiles/single_stranded_damage.txt \

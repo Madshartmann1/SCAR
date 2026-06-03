@@ -331,23 +331,48 @@ void FragmentLengthDistribution::loadFromFile(const std::string& filename) {
         throw std::runtime_error("Cannot open fragment distribution file: " + filename);
     }
     
-    empirical_data.clear();
+    empirical_lengths.clear();
+    std::vector<double> weights;
     std::string line;
     size_t line_count = 0;
     
     while (std::getline(file, line)) {
         line_count++;
         
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#') continue;
+        // Skip empty lines, comments, and mapDamage text headers
+        if (line.empty() || line[0] == '#' || line.find("Std") == 0 || line.find("Length") != std::string::npos) {
+            continue;
+        }
         
-        // Parse fragment length
         std::istringstream iss(line);
-        size_t length;
+        std::vector<std::string> tokens;
+        std::string token;
+        while(iss >> token) {
+            tokens.push_back(token);
+        }
         
-        if (!(iss >> length)) {
-            throw std::runtime_error("Invalid fragment length at line " + 
-                                   std::to_string(line_count));
+        if (tokens.empty()) continue;
+        
+        size_t length = 0;
+        double weight = 1.0;
+        
+        try {
+            if (tokens.size() == 1) {
+                // Legacy: list of lengths (each has weight 1)
+                length = std::stoull(tokens[0]);
+                weight = 1.0;
+            } else if (tokens.size() == 2) {
+                // Length and Weight
+                length = std::stoull(tokens[0]);
+                weight = std::stod(tokens[1]);
+            } else if (tokens.size() >= 3) {
+                // mapDamage: Strand, Length, Occurrences
+                length = std::stoull(tokens[1]);
+                weight = std::stod(tokens[2]);
+            }
+        } catch (const std::exception& e) {
+            throw std::runtime_error("Invalid format at line " + 
+                                   std::to_string(line_count) + " in " + filename);
         }
         
         if (length == 0) {
@@ -355,12 +380,16 @@ void FragmentLengthDistribution::loadFromFile(const std::string& filename) {
                                    std::to_string(line_count));
         }
         
-        empirical_data.push_back(length);
+        empirical_lengths.push_back(length);
+        weights.push_back(weight);
     }
     
-    if (empirical_data.empty()) {
+    if (empirical_lengths.empty()) {
         throw std::runtime_error("No fragment lengths found in " + filename);
     }
+    
+    // Create the discrete distribution mapping indices to probabilities/weights
+    empirical_dist = std::discrete_distribution<size_t>(weights.begin(), weights.end());
 }
 
 size_t FragmentLengthDistribution::sample() {
@@ -373,8 +402,8 @@ size_t FragmentLengthDistribution::sample() {
             return static_length;
             
         case FragmentDistribution::EMPIRICAL: {
-            std::uniform_int_distribution<size_t> dist(0, empirical_data.size() - 1);
-            return empirical_data[dist(*rng_ptr)];
+            size_t idx = empirical_dist(*rng_ptr);
+            return empirical_lengths[idx];
         }
         
         case FragmentDistribution::EXPONENTIAL: {
