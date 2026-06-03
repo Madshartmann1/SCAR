@@ -465,8 +465,8 @@ gunzip -c reads.fastq.gz > reads.fastq
 If you use this tool in published research, please cite this repository:
 
 ```
-mutate_seq: High-Performance Sequence Mutation Tool
-https://github.com/Madshartmann1/mutation_tool
+SCAR: Sequences + Controlled mutations + Ancient damage + fRagmentation
+https://github.com/Madshartmann1/SCAR
 ```
 
 ## Contact
