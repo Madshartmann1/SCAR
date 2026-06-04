@@ -270,9 +270,19 @@ as one observation.
 125 20
 ```
 
-The first column is fragment length and the second column is the sampling weight
-or count. In this example, 75 bp fragments are sampled more often than 125 bp
-fragments.
+Equivalent probability-style weights also work:
+```
+50 0.179
+75 0.672
+100 0.119
+125 0.030
+```
+
+The first column is fragment length and the second column is the relative
+sampling weight. These values are normalized internally, so they can be absolute
+occurrence counts from an empirical dataset, percentages that sum to 100, or
+probabilities that sum to 1. In this example, 75 bp fragments are sampled more
+often than 125 bp fragments.
 
 **Format 3: mapDamage length distribution**
 ```
