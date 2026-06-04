@@ -350,6 +350,21 @@ public:
      * @throws runtime_error if file cannot be opened or is invalid
      */
     void loadFromFile(const std::string& filename);
+
+private:
+    /**
+     * Load the native SCAR damage profile format.
+     * Format: end position from to frequency
+     */
+    void loadScarDamageProfileFile(const std::string& filename);
+
+    /**
+     * Load mapDamage misincorporation.txt and convert it directly in memory.
+     * Mirrors damage_profiles/convert_mapdamage.py.
+     */
+    void loadMapDamageMisincorporationFile(const std::string& filename);
+
+public:
     
     /**
      * Check if profile has any damage defined

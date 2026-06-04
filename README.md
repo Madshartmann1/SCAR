@@ -190,6 +190,15 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
     --threads 8
 ```
 
+`--ancient-damage` also accepts a mapDamage output directory containing
+`misincorporation.txt`; SCAR auto-detects the format and converts it in memory.
+
+```bash
+./scar --input reads.fastq.gz --output damaged \
+    --ancient-damage mapdamage_results/ \
+    --threads 8
+```
+
 **Damage + mutation rate + Ts/Tv ratio (`--ancient-damage`+`--mutation-rate`+`--ts-tv-ratio`)**
 ```bash
 ./scar --input reads.fastq.gz --output evolved_damaged \

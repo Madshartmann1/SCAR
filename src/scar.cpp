@@ -9,6 +9,122 @@
 #include <cstring>
 #include <sys/stat.h>
 
+namespace {
+
+bool pathExists(const std::string& path) {
+    struct stat path_status;
+    return stat(path.c_str(), &path_status) == 0;
+}
+
+bool isRegularFilePath(const std::string& path) {
+    struct stat path_status;
+    return stat(path.c_str(), &path_status) == 0 && S_ISREG(path_status.st_mode);
+}
+
+bool isDirectoryPath(const std::string& path) {
+    struct stat path_status;
+    return stat(path.c_str(), &path_status) == 0 && S_ISDIR(path_status.st_mode);
+}
+
+std::string joinPath(const std::string& directory, const std::string& filename) {
+    if (directory.empty() || directory.back() == '/') {
+        return directory + filename;
+    }
+    return directory + "/" + filename;
+}
+
+std::vector<std::string> splitWhitespace(const std::string& line) {
+    std::istringstream stream(line);
+    std::vector<std::string> tokens;
+    std::string token;
+
+    while (stream >> token) {
+        tokens.push_back(token);
+    }
+
+    return tokens;
+}
+
+bool looksLikeScarDamageProfileFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+
+        if (line.find("end") != std::string::npos &&
+            line.find("position") != std::string::npos) {
+            continue;
+        }
+
+        std::istringstream parser(line);
+        std::string end;
+        size_t position;
+        char from_base;
+        char to_base;
+        double frequency;
+
+        if (!(parser >> end >> position >> from_base >> to_base >> frequency)) {
+            return false;
+        }
+
+        return (end == "5p" || end == "3p") &&
+               position > 0 &&
+               std::string("ACGT").find(from_base) != std::string::npos &&
+               std::string("ACGT").find(to_base) != std::string::npos &&
+               frequency >= 0.0 &&
+               frequency <= 1.0;
+    }
+
+    return false;
+}
+
+bool looksLikeMapDamageMisincorporationFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::string line;
+
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+
+        if (line[0] == '#') {
+            continue;
+        }
+
+        std::vector<std::string> tokens = splitWhitespace(line);
+        if (tokens.size() >= 13 &&
+            tokens[0] == "Chr" &&
+            tokens[1] == "End" &&
+            tokens[2] == "Std" &&
+            tokens[3] == "Pos" &&
+            tokens[4] == "A" &&
+            tokens[5] == "C" &&
+            tokens[6] == "G" &&
+            tokens[7] == "T" &&
+            tokens[8] == "Total" &&
+            tokens[9] == "G>A" &&
+            tokens[10] == "C>T") {
+            return true;
+        }
+
+        return false;
+    }
+
+    return false;
+}
+
+}  // namespace
+
 // ============================================================================
 // GzipFile Implementation
 // ============================================================================
@@ -234,7 +350,7 @@ double DamageProfile::getDamage(const std::string& end, size_t position,
     return sub_it->second;
 }
 
-void DamageProfile::loadFromFile(const std::string& filename) {
+void DamageProfile::loadScarDamageProfileFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open damage profile file: " + filename);
@@ -274,6 +390,96 @@ void DamageProfile::loadFromFile(const std::string& filename) {
     
     if (isEmpty()) {
         throw std::runtime_error("Damage profile file is empty or contains no valid data");
+    }
+}
+
+void DamageProfile::loadMapDamageMisincorporationFile(const std::string& filename) {
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        throw std::runtime_error("Cannot open mapDamage misincorporation file: " + filename);
+    }
+
+    std::string line;
+    size_t line_count = 0;
+
+    while (std::getline(file, line)) {
+        line_count++;
+
+        if (line.empty() || line[0] == '#' || line.find("Chr") == 0) {
+            continue;
+        }
+
+        std::vector<std::string> fields = splitWhitespace(line);
+        if (fields.size() < 13) {
+            continue;
+        }
+
+        try {
+            const std::string& end = fields[1];
+            const std::string& strand = fields[2];
+            size_t position = std::stoull(fields[3]);
+            double c_count = std::stod(fields[5]);
+            double g_count = std::stod(fields[6]);
+            double total_count = std::stod(fields[8]);
+            double g_to_a_count = std::stod(fields[9]);
+            double c_to_t_count = std::stod(fields[10]);
+
+            // Match the historical converter: use only positive-strand rows.
+            if (strand != "+" || total_count <= 0.0) {
+                continue;
+            }
+
+            if (end != "5p" && end != "3p") {
+                throw std::runtime_error("Invalid mapDamage end '" + end + "' at line " +
+                                       std::to_string(line_count));
+            }
+
+            if (c_count > 0.0) {
+                addDamage(end, position, 'C', 'T', c_to_t_count / c_count);
+            }
+
+            if (g_count > 0.0) {
+                addDamage(end, position, 'G', 'A', g_to_a_count / g_count);
+            }
+        } catch (const std::exception& e) {
+            throw std::runtime_error("Invalid mapDamage misincorporation format at line " +
+                                   std::to_string(line_count) + " in " + filename +
+                                   ": " + e.what());
+        }
+    }
+
+    if (isEmpty()) {
+        throw std::runtime_error("mapDamage misincorporation file contains no usable positive-strand damage data: " +
+                               filename);
+    }
+}
+
+void DamageProfile::loadFromFile(const std::string& filename) {
+    damage_map.clear();
+    max_position = 0;
+
+    std::string mapdamage_misincorporation_file = filename;
+    bool input_is_directory = isDirectoryPath(filename);
+
+    if (input_is_directory) {
+        mapdamage_misincorporation_file = joinPath(filename, "misincorporation.txt");
+    }
+
+    bool scar_profile_detected = isRegularFilePath(filename) &&
+                                 looksLikeScarDamageProfileFile(filename);
+    bool mapdamage_profile_detected = pathExists(mapdamage_misincorporation_file) &&
+                                      looksLikeMapDamageMisincorporationFile(mapdamage_misincorporation_file);
+
+    if (scar_profile_detected == mapdamage_profile_detected) {
+        throw std::runtime_error(
+            "Could not auto-detect exactly one damage profile format for '" + filename +
+            "'. Expected either a SCAR damage profile file or a mapDamage directory/file with misincorporation.txt.");
+    }
+
+    if (scar_profile_detected) {
+        loadScarDamageProfileFile(filename);
+    } else {
+        loadMapDamageMisincorporationFile(mapdamage_misincorporation_file);
     }
 }
 
@@ -2077,7 +2283,7 @@ Mutation modes (choose ONE):
                                    MUST be paired with --num-mutations OR --mutation-rate
 
 Ancient DNA damage (OPTIONAL, can be combined with ANY mutation mode above):
-  -d, --ancient-damage <file>      Position-dependent C->T/G->A damage pattern
+  -d, --ancient-damage <file|dir>  SCAR damage profile file or mapDamage output dir
                                    Can be stacked with any mutation mode
   --background-rate <rate>         Additional random mutation rate (optional)
 

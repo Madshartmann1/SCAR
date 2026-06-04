@@ -71,7 +71,15 @@ end     position    from    to    frequency
 
 ## Bespoke Damage Profiles - Converting mapDamage Output
 
-If you have your own damage profile, conversion from mapDamage can be done with the provided script to convert `misincorporation.txt` to the format shown above:
+SCAR can use mapDamage output directly. Pass either the mapDamage output
+directory containing `misincorporation.txt` or the `misincorporation.txt` file
+itself to `--ancient-damage`.
+
+```bash
+scar --input reads.fastq.gz --output damaged --ancient-damage path/to/mapdamage_results/
+```
+
+The standalone converter is kept for inspection/export workflows:
 
 ```bash
 convert_mapdamage.py path/to/misincorporation.txt --output custom_damage.txt
