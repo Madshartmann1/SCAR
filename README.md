@@ -51,6 +51,10 @@ make check-deps
 ```bash
 ./scar --input <file> --output <prefix> [mutation_mode] [options]
 ```
+
+### Expected Input
+
+SCAR expects FASTA or FASTQ input. For read-level FASTQ input, reads are assumed to have already gone through adapter removal and quality trimming before running SCAR.
 <!---
 ### Quick Examples
 
