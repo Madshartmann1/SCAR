@@ -1360,6 +1360,15 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
     // Process read fragment by fragment
     size_t pos = 0;
     size_t fragment_num = 1;
+
+    auto make_fragment_identifier = [&entry](size_t current_fragment_number,
+                                             size_t fragment_start_position,
+                                             size_t fragment_length) {
+        size_t fragment_end_position = fragment_start_position + fragment_length - 1;
+        return entry.id + "_frag" + std::to_string(current_fragment_number) +
+               "_" + std::to_string(fragment_start_position) +
+               "-" + std::to_string(fragment_end_position);
+    };
     
     while (pos < input_length) {
         size_t fragment_length = (fragment_num == 1) ? first_sample : fragment_dist.sample();
@@ -1370,7 +1379,7 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
             // Can't use this sample, check if remainder is worth keeping
             if (remaining >= config.min_fragment_length) {
                 // Keep short fragment
-                std::string frag_id = entry.id + "_frag" + std::to_string(fragment_num);
+                std::string frag_id = make_fragment_identifier(fragment_num, pos, remaining);
                 std::string frag_seq = entry.sequence.substr(pos, remaining);
                 std::string frag_qual = is_fastq ? entry.quality.substr(pos, remaining) : "";
                 
@@ -1386,7 +1395,7 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
         }
         
         // Extract and store fragment
-        std::string frag_id = entry.id + "_frag" + std::to_string(fragment_num);
+        std::string frag_id = make_fragment_identifier(fragment_num, pos, fragment_length);
         std::string frag_seq = entry.sequence.substr(pos, fragment_length);
         std::string frag_qual = is_fastq ? entry.quality.substr(pos, fragment_length) : "";
         
