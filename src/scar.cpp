@@ -45,6 +45,25 @@ std::vector<std::string> splitWhitespace(const std::string& line) {
     return tokens;
 }
 
+std::string firstHeaderToken(const std::string& header_without_prefix) {
+    std::istringstream stream(header_without_prefix);
+    std::string first_token;
+    stream >> first_token;
+    return first_token;
+}
+
+std::string normalizeReadNameForPairing(const std::string& header_without_prefix) {
+    std::string normalized_name = firstHeaderToken(header_without_prefix);
+
+    if (normalized_name.size() > 2 &&
+        normalized_name[normalized_name.size() - 2] == '/' &&
+        (normalized_name.back() == '1' || normalized_name.back() == '2')) {
+        normalized_name.resize(normalized_name.size() - 2);
+    }
+
+    return normalized_name;
+}
+
 bool looksLikeScarDamageProfileFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -1746,6 +1765,158 @@ GenomeStats MutationEngine::processStreaming() {
 }
 
 // ============================================================================
+// Paired-End Streaming Mode
+// ============================================================================
+
+GenomeStats MutationEngine::processPairedEnd() {
+    if (detectFileFormat(config.input_r1_file) != FileFormat::FASTQ ||
+        detectFileFormat(config.input_r2_file) != FileFormat::FASTQ) {
+        throw std::runtime_error("Paired-end mode requires FASTQ input for both --input-r1 and --input-r2");
+    }
+
+    bool compress_r1 = config.compress_output || isGzipped(config.input_r1_file);
+    bool compress_r2 = config.compress_output || isGzipped(config.input_r2_file);
+    std::string r1_fastq_output = config.output_r1_prefix + ".fastq" + (compress_r1 ? ".gz" : "");
+    std::string r2_fastq_output = config.output_r2_prefix + ".fastq" + (compress_r2 ? ".gz" : "");
+    std::string r1_snp_output = config.output_r1_prefix + ".snp";
+    std::string r2_snp_output = config.output_r2_prefix + ".snp";
+
+    GzipFile r1_input(config.input_r1_file, "r");
+    GzipFile r2_input(config.input_r2_file, "r");
+    GzipFile r1_output(r1_fastq_output, "w", compress_r1);
+    GzipFile r2_output(r2_fastq_output, "w", compress_r2);
+    std::ofstream r1_snp_file(r1_snp_output);
+    std::ofstream r2_snp_file(r2_snp_output);
+
+    if (!r1_snp_file.is_open()) {
+        throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_output);
+    }
+    if (!r2_snp_file.is_open()) {
+        throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_output);
+    }
+
+    auto read_fastq_record = [](GzipFile& input_file,
+                                const std::string& mate_label,
+                                size_t record_number,
+                                SequenceEntry& record) {
+        std::string header_line;
+        if (!input_file.getline(header_line)) {
+            return false;
+        }
+
+        if (header_line.empty() || header_line[0] != '@') {
+            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                     std::to_string(record_number) + ": expected '@' header");
+        }
+
+        std::string sequence_line;
+        std::string separator_line;
+        std::string quality_line;
+
+        if (!input_file.getline(sequence_line)) {
+            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                     std::to_string(record_number) + ": missing sequence");
+        }
+        if (!input_file.getline(separator_line) || separator_line.empty() || separator_line[0] != '+') {
+            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                     std::to_string(record_number) + ": expected '+' separator");
+        }
+        if (!input_file.getline(quality_line)) {
+            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                     std::to_string(record_number) + ": missing quality");
+        }
+        if (sequence_line.length() != quality_line.length()) {
+            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                     std::to_string(record_number) + ": sequence and quality length differ");
+        }
+
+        std::transform(sequence_line.begin(), sequence_line.end(), sequence_line.begin(), ::toupper);
+        record = SequenceEntry(header_line.substr(1), sequence_line, quality_line);
+        return true;
+    };
+
+    auto write_fastq_record = [](GzipFile& output_file, const SequenceEntry& record) {
+        output_file.write("@" + record.id + "\n");
+        output_file.write(record.sequence + "\n");
+        output_file.write("+\n");
+        output_file.write(record.quality + "\n");
+    };
+
+    auto write_snp_records = [](std::ofstream& snp_file, const std::vector<Mutation>& mutations) {
+        for (const Mutation& mutation : mutations) {
+            snp_file << mutation.seq_id << "\t"
+                     << mutation.position << "\t"
+                     << mutation.original << "\t"
+                     << mutation.new_base << "\n";
+        }
+    };
+
+    std::cout << "Processing paired-end FASTQ in synchronized mode..." << std::endl;
+
+    GenomeStats stats;
+    stats.is_streaming = true;
+    size_t pair_count = 0;
+    std::vector<Mutation> r1_mutations;
+    std::vector<Mutation> r2_mutations;
+
+    while (true) {
+        SequenceEntry r1_record;
+        SequenceEntry r2_record;
+        size_t next_record_number = pair_count + 1;
+        bool have_r1 = read_fastq_record(r1_input, "R1", next_record_number, r1_record);
+        bool have_r2 = read_fastq_record(r2_input, "R2", next_record_number, r2_record);
+
+        if (!have_r1 && !have_r2) {
+            break;
+        }
+        if (have_r1 != have_r2) {
+            throw std::runtime_error("R1/R2 record count mismatch at pair " +
+                                     std::to_string(next_record_number));
+        }
+
+        std::string r1_pair_name = normalizeReadNameForPairing(r1_record.id);
+        std::string r2_pair_name = normalizeReadNameForPairing(r2_record.id);
+        if (r1_pair_name != r2_pair_name) {
+            throw std::runtime_error("R1/R2 pair name mismatch at pair " +
+                                     std::to_string(next_record_number) + ": " +
+                                     r1_pair_name + " != " + r2_pair_name);
+        }
+
+        r1_mutations.clear();
+        r2_mutations.clear();
+        processSequenceEntry(r1_record, r1_mutations);
+        processSequenceEntry(r2_record, r2_mutations);
+
+        write_fastq_record(r1_output, r1_record);
+        write_fastq_record(r2_output, r2_record);
+        write_snp_records(r1_snp_file, r1_mutations);
+        write_snp_records(r2_snp_file, r2_mutations);
+
+        pair_count++;
+        stats.total_length += r1_record.sequence.length() + r2_record.sequence.length();
+        stats.valid_positions += r1_record.sequence.length() + r2_record.sequence.length();
+    }
+
+    r1_output.close();
+    r2_output.close();
+    r1_snp_file.close();
+    r2_snp_file.close();
+
+    stats.num_sequences = pair_count * 2;
+    processed_count.store(stats.num_sequences);
+
+    std::cout << "Processing complete!" << std::endl;
+    std::cout << "Read pairs processed: " << pair_count << std::endl;
+    std::cout << "Output files:" << std::endl;
+    std::cout << "  - " << r1_fastq_output << std::endl;
+    std::cout << "  - " << r2_fastq_output << std::endl;
+    std::cout << "  - " << r1_snp_output << std::endl;
+    std::cout << "  - " << r2_snp_output << std::endl;
+
+    return stats;
+}
+
+// ============================================================================
 // File Output Functions
 // ============================================================================
 
@@ -1929,6 +2100,24 @@ void MutationEngine::printReport(
 
 int MutationEngine::run() {
     try {
+        if (config.paired_end_mode) {
+            if (config.fragment_mode != FragmentDistribution::NONE) {
+                throw std::runtime_error("Paired-end mode does not support fragmentation; use single-end merged fragmentation workflow");
+            }
+            if (config.mode == MutationMode::FLAT_NUMBER) {
+                throw std::runtime_error("Paired-end mode does not support --num-mutations; use a rate-based mutation mode");
+            }
+
+            std::cout << "Input R1 file: " << config.input_r1_file << "\n";
+            std::cout << "Input R2 file: " << config.input_r2_file << "\n";
+            std::cout << "Format: FASTQ paired-end\n";
+            std::cout << "Random seed: " << config.seed << "\n\n";
+
+            processPairedEnd();
+            std::cout << "\nDone!\n";
+            return 0;
+        }
+
         // Detect file format
         FileFormat format = detectFileFormat(config.input_file);
         std::string format_str = (format == FileFormat::FASTA) ? "FASTA" : "FASTQ";
@@ -2086,16 +2275,37 @@ Config ArgumentParser::parse() {
         exit(0);
     }
     
-    // Required arguments
-    if (!hasOption("--input", "-i")) {
-        throw std::runtime_error("Missing required argument: --input / -i");
+    bool has_single_end_input = hasOption("--input", "-i");
+    bool has_single_end_output = hasOption("--output", "-o");
+    bool has_paired_end_option = hasOption("--input-r1") || hasOption("--input-r2") ||
+                                 hasOption("--output-r1") || hasOption("--output-r2");
+    bool has_complete_paired_end_options = hasOption("--input-r1") && hasOption("--input-r2") &&
+                                           hasOption("--output-r1") && hasOption("--output-r2");
+
+    if (has_paired_end_option) {
+        if (!has_complete_paired_end_options) {
+            throw std::runtime_error("Paired-end mode requires --input-r1, --input-r2, --output-r1, and --output-r2");
+        }
+        if (has_single_end_input || has_single_end_output) {
+            throw std::runtime_error("Use either single-end --input/--output or paired-end --input-r1/--input-r2/--output-r1/--output-r2, not both");
+        }
+
+        config.paired_end_mode = true;
+        config.input_r1_file = getOptionValue("--input-r1");
+        config.input_r2_file = getOptionValue("--input-r2");
+        config.output_r1_prefix = getOptionValue("--output-r1");
+        config.output_r2_prefix = getOptionValue("--output-r2");
+    } else {
+        if (!has_single_end_input) {
+            throw std::runtime_error("Missing required argument: --input / -i");
+        }
+        if (!has_single_end_output) {
+            throw std::runtime_error("Missing required argument: --output / -o");
+        }
+
+        config.input_file = getOptionValue("--input", "-i");
+        config.output_prefix = getOptionValue("--output", "-o");
     }
-    config.input_file = getOptionValue("--input", "-i");
-    
-    if (!hasOption("--output", "-o")) {
-        throw std::runtime_error("Missing required argument: --output / -o");
-    }
-    config.output_prefix = getOptionValue("--output", "-o");
     
     // Determine mutation mode
     // Process modes in order of precedence to avoid double-counting
@@ -2266,6 +2476,14 @@ Config ArgumentParser::parse() {
     if (hasOption("--allow-fasta-fragmentation")) {
         config.allow_fasta_fragmentation = true;
     }
+
+    if (config.paired_end_mode && config.fragment_mode != FragmentDistribution::NONE) {
+        throw std::runtime_error("Paired-end mode does not support fragmentation; use the existing merged single-end fragmentation workflow");
+    }
+
+    if (config.paired_end_mode && config.mode == MutationMode::FLAT_NUMBER) {
+        throw std::runtime_error("Paired-end mode does not support --num-mutations; use --mutation-rate or another rate-based mode");
+    }
     
     return config;
 }
@@ -2280,6 +2498,12 @@ Usage: scar [options]
 Required arguments:
   -i, --input <file>        Input FASTA/FASTQ file (gzipped or uncompressed)
   -o, --output <prefix>     Output file prefix
+
+Paired-end FASTQ mode:
+  --input-r1 <file>         Input R1 FASTQ file (gzipped or uncompressed)
+  --input-r2 <file>         Input R2 FASTQ file (gzipped or uncompressed)
+  --output-r1 <prefix>      Output R1 prefix
+  --output-r2 <prefix>      Output R2 prefix
 
 Mutation modes (choose ONE):
   -n, --num-mutations <N>          Introduce exactly N random mutations
@@ -2326,6 +2550,11 @@ Processing pipeline:
   scar -i reads.fastq.gz -o mutated \
              -r 0.001 --ts-tv-ratio 2.0 -t 8
 
+  # Paired-end reads with synchronized R1/R2 output
+  scar --input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz \
+             --output-r1 mutated_R1 --output-r2 mutated_R2 \
+             -r 0.001 --seed 27
+
   # Ancient DNA damage ONLY
   scar -i reads.fastq.gz -o damaged \
              -d damage_profiles/double_stranded_damage.txt
@@ -2358,6 +2587,7 @@ Processing pipeline:
 Output files:
   <prefix>.fa / .fastq[.gz]  - Mutated sequences (format matches input)
   <prefix>.snp               - SNP receipt (seqtk format: chr pos original new)
+  Paired-end mode writes the same suffixes for each output prefix.
 
 For more information, see README.md
 )" << std::endl;

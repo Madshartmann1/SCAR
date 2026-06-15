@@ -129,6 +129,11 @@ struct Config {
     // Required parameters
     std::string input_file;      // Path to input FASTA/FASTQ file
     std::string output_prefix;   // Prefix for output files
+    std::string input_r1_file;   // Path to paired-end R1 FASTQ file
+    std::string input_r2_file;   // Path to paired-end R2 FASTQ file
+    std::string output_r1_prefix; // Prefix for paired-end R1 output files
+    std::string output_r2_prefix; // Prefix for paired-end R2 output files
+    bool paired_end_mode = false; // Process synchronized R1/R2 FASTQ inputs
     MutationMode mode;           // Mutation mode to use
     
     // Mode-specific parameters
@@ -710,6 +715,12 @@ public:
      * @return Statistics about processed data
      */
     GenomeStats processStreaming();
+
+    /**
+     * Process synchronized paired-end FASTQ files without merging mates
+     * @return Statistics about processed read pairs
+     */
+    GenomeStats processPairedEnd();
     
     /**
      * Calculate statistics for loaded sequences (in-memory mode)

@@ -52,9 +52,22 @@ make check-deps
 ./scar --input <file> --output <prefix> [mutation_mode] [options]
 ```
 
+For mapper-ready paired-end mutation, keep R1 and R2 separate:
+```bash
+./scar --input-r1 R1.fastq.gz --input-r2 R2.fastq.gz \
+    --output-r1 mutated_R1 --output-r2 mutated_R2 \
+    --mutation-rate 0.001 --seed 27
+```
+
 ### Expected Input
 
 SCAR expects FASTA or FASTQ input. For read-level FASTQ input, reads are assumed to have already gone through adapter removal and quality trimming before running SCAR.
+
+For paired-end mutation, provide two synchronized FASTQ files with records in the
+same order. SCAR reads one R1 record and one R2 record at a time, checks that the
+normalized read names match, and aborts on pair-name or record-count mismatch.
+Headers such as `@ERR13719744.1` in both mates are valid. `/1` and `/2` suffixes
+are ignored for pair matching.
 <!---
 ### Quick Examples
 
@@ -89,6 +102,13 @@ Applies uniform mutation rate across all substitution types.
 ./scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
+Paired-end FASTQ example:
+```bash
+./scar --input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz \
+    --output-r1 mutated_R1 --output-r2 mutated_R2 \
+    --mutation-rate 0.001 --seed 27
+```
+
 ### Mode 2: Flat Number (`--num-mutations`)
 Introduces exactly N mutations across the entire dataset.
 
@@ -97,6 +117,9 @@ Introduces exactly N mutations across the entire dataset.
 ```
 
 **Note**: Requires in-memory mode (not available for streaming).
+
+**Paired-end note**: `--num-mutations` is not supported in paired-end mode. Use
+a rate-based mutation mode for synchronized R1/R2 output.
 
 ### Mode 3: Separate Ts/Tv Rates (`--ts-rate` + `--tv-rate`)
 Specifies different rates for transitions and transversions.
@@ -145,7 +168,7 @@ T       G       0.007
 ```
 
 
-**PS: The Mutation rate is currently igonred for the matrix**
+**PS: The mutation rate is currently ignored for the matrix**
 
 ### Mode 6: Custom Mutation Spectrum (`--mutation-spectrum` + `--mutation-rate` or `--num-mutations`)
 
@@ -179,7 +202,7 @@ T       G       1.0
 
 ## Ancient DNA Damage Simulation
 
-`mutate_seq` can simulate position-dependent ancient DNA (aDNA) damage patterns, example:
+`scar` can simulate position-dependent ancient DNA (aDNA) damage patterns, example:
 - **C→T deamination** enriched at 5' fragment ends
 - **G→A deamination** enriched at 3' fragment ends  
 - **Exponential decay** of damage signal away from fragment ends
@@ -214,7 +237,7 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
 
 **Damage + Background mutations (`--ancient-damage`+`--background-rate`)**
 
-Background rate only effects poistions left untouched by the damage profile. 
+Background rate only affects positions left untouched by the damage profile. 
 ```bash
 ./scar --input reads.fastq.gz --output complex \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
@@ -231,6 +254,13 @@ Background rate only effects poistions left untouched by the damage profile.
 `scar` can fragment long sequences into realistic DNA fragment length distributions.
 
 **Processing order**: Fragmentation happens **first**, then mutations, then damage (if enabled).
+
+**Paired-end limitation**: Fragmentation is single-end logic. Paired-end mode
+(`--input-r1`/`--input-r2`) rejects fragmentation because independent fragmenting
+would break mapper-ready R1/R2 synchronization. For paired-end datasets that need
+fragmentation, use the merge-for-fragmentation helper workflow; that produces a
+single-end merged FASTQ and is not mapper-ready paired-end output. For mapper-ready
+R1/R2 output, use paired-end mutation/damage without fragmentation.
 
 **FASTA Safeguard**: Fragmentation and/or ancient damage with FASTA input is blocked by default (FASTA lacks base quality scores needed for realistic reads). Use a read simulator (ART, wgsim, etc.) to generate FASTQ first, or override with `--allow-fasta-fragmentation` for testing purposes.
 
@@ -300,7 +330,7 @@ often than 125 bp fragments.
 **Format 3: mapDamage length distribution**
 ```
 # table produced by mapDamage
-Std	Length	Occurences
+Std	Length	Occurrences
 +	35	42
 +	36	58
 +	37	91
@@ -324,7 +354,7 @@ Example using a mapDamage `lgdistribution.txt` file:
 This uses the observed mapDamage length distribution directly, so lengths with
 higher occurrence counts are sampled more frequently.
 
-#### 3. Exponental Distribution
+#### 3. Exponential Distribution
 
 ```bash
 ./scar --input reads.fastq.gz --output frags \
@@ -420,6 +450,8 @@ Combine fragmentation + mutations + damage for realistic ancient DNA:
 Format matches input:
 - Input: `genome.fa` → Output: `prefix.fa`
 - Input: `reads.fastq.gz` → Output: `prefix.fastq.gz`
+- Input: `--input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz` →
+  Outputs: `output_R1.fastq.gz` and `output_R2.fastq.gz`
 
 
 ### SNP File (`prefix.snp`)
@@ -432,10 +464,16 @@ seq_2       89      G       A
 
 Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 
+In paired-end mode, SCAR writes one SNP receipt per mate:
+- `--output-r1 sample_R1` → `sample_R1.fastq[.gz]` and `sample_R1.snp`
+- `--output-r2 sample_R2` → `sample_R2.fastq[.gz]` and `sample_R2.snp`
+
 **Gzip compression**: Output compression matches input by default. Use `--gz` to force compression of uncompressed input:
 - `genome.fa` + `--gz` → `prefix.fa.gz` (compressed output from plain input)
 - `genome.fa` (no --gz) → `prefix.fa` (plain output from plain input)
 - `reads.fastq.gz` → `prefix.fastq.gz` (compressed output from compressed input)
+- Paired-end output compression follows each mate input by default; use `--gz`
+  to force compressed output.
 
 
 ### Processing Modes
@@ -452,6 +490,12 @@ Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 - **Best for**: Large FASTQ files (50GB+), read datasets
 - **Memory usage**: ~50-100MB regardless of file size
 - **Threads**: 1 producer + (N-1) workers (min 2 threads required)
+
+#### Paired-End Synchronized Mode
+- **Triggered by**: `--input-r1`, `--input-r2`, `--output-r1`, and `--output-r2`
+- **Characteristics**: Reads one R1 and one R2 record at a time, validates pair names, writes synchronized mate outputs
+- **Best for**: Mapper-ready paired-end mutation/damage without fragmentation
+- **Rejects**: Fragmentation and `--num-mutations`
 
 
 ## Troubleshooting
@@ -487,6 +531,14 @@ brew install zlib
 **Issue**: Unexpected mutation counts  
 **Note**: For small genomes or low mutation rates, stochastic variation is expected. Use `--num-mutations` for deterministic counts.
 
+**Issue**: Paired-end run fails with pair-name or record-count mismatch  
+**Cause**: R1 and R2 are not synchronized, have different read counts, or have different normalized read names at the same record position.  
+**Fix**: Re-pair or sort/filter R1 and R2 before running SCAR. Paired-end mode does not reorder reads; it preserves and validates the existing order.
+
+**Issue**: Fragmentation requested with paired-end input  
+**Cause**: Fragmentation would break mapper-ready R1/R2 synchronization.  
+**Fix**: Use paired-end mode for mutation/damage-only output, or use the merge-for-fragmentation workflow when single-end merged output is intended.
+
 ### Performance Issues
 
 **Issue**: Slow processing with streaming mode  
@@ -510,6 +562,7 @@ gunzip -c reads.fastq.gz > reads.fastq
 - **Worker threads**: Process mutations, write to thread-specific temporary files
 - **Main thread**: Merges worker outputs into final file
 - **Progress thread**: Reports status every 10 seconds
+- **Paired-end mode**: Processes R1/R2 pairs sequentially to preserve exact mate synchronization. `--threads` is accepted but paired-end retention does not use the single-end worker merge architecture.
 
 ### Random Number Generation
 - C++ `<random>` library with Mersenne Twister (mt19937_64)
@@ -543,4 +596,4 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## License
 
-This project is currently in reasearch stages.
+This project is currently in research stages.
