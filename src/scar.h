@@ -160,6 +160,8 @@ struct Config {
     // Threading and streaming parameters
     unsigned int num_threads = 4;       // Number of worker threads (default: 4)
     size_t chunk_size = 10000;          // Reads per chunk in streaming mode
+    size_t max_pending_chunks = 0;      // Max queued PE chunks (0 = default from thread count)
+    bool max_pending_chunks_set = false; // True if --max-pending-chunks was provided
     FileFormat format = FileFormat::UNKNOWN;  // Force format (or auto-detect)
     bool force_streaming = false;       // Force streaming even for small files
     
@@ -448,6 +450,71 @@ public:
     }
 };
 
+/**
+ * Bounded thread-safe queue for memory-limited producer/consumer pipelines
+ */
+template<typename T>
+class BoundedThreadSafeQueue {
+private:
+    std::queue<T> queue;                    // Underlying queue
+    mutable std::mutex mutex;               // Protects queue access
+    std::condition_variable not_empty;      // Signaled when data is available
+    std::condition_variable not_full;       // Signaled when capacity is available
+    size_t max_size;                        // Maximum queued items
+    bool finished = false;                  // Signals no more items will be added
+
+public:
+    explicit BoundedThreadSafeQueue(size_t maximum_size)
+        : max_size(maximum_size > 0 ? maximum_size : 1) {}
+
+    /**
+     * Push an item, blocking while the queue is full
+     * @param item Item to add
+     * @return False if the queue was already marked finished
+     */
+    bool push(T item) {
+        std::unique_lock<std::mutex> lock(mutex);
+        not_full.wait(lock, [this] { return queue.size() < max_size || finished; });
+
+        if (finished) {
+            return false;
+        }
+
+        queue.push(std::move(item));
+        not_empty.notify_one();
+        return true;
+    }
+
+    /**
+     * Pop an item, blocking while the queue is empty
+     * @param item Output parameter to receive item
+     * @return True if item was popped, false if queue is finished and empty
+     */
+    bool pop(T& item) {
+        std::unique_lock<std::mutex> lock(mutex);
+        not_empty.wait(lock, [this] { return !queue.empty() || finished; });
+
+        if (queue.empty()) {
+            return false;
+        }
+
+        item = std::move(queue.front());
+        queue.pop();
+        not_full.notify_one();
+        return true;
+    }
+
+    /**
+     * Signal that no more items will be added or consumed
+     */
+    void setFinished() {
+        std::lock_guard<std::mutex> lock(mutex);
+        finished = true;
+        not_empty.notify_all();
+        not_full.notify_all();
+    }
+};
+
 // ============================================================================
 // GZIP File Handler
 // ============================================================================
@@ -585,6 +652,14 @@ private:
     /**
      * Select a mutated base according to the configured mutation mode
      * @param original Original base
+     * @param active_rng Random number generator to use
+     * @return New mutated base
+     */
+    char selectMutatedBase(char original, std::mt19937& active_rng);
+
+    /**
+     * Select a mutated base using the engine-level random number generator
+     * @param original Original base
      * @return New mutated base
      */
     char selectMutatedBase(char original);
@@ -620,11 +695,27 @@ private:
      * Process a single sequence entry and apply mutations
      * @param entry Sequence entry to mutate (modified in place)
      * @param mutations Output vector to store mutations
+     * @param active_rng Random number generator to use
+     */
+    void processSequenceEntry(SequenceEntry& entry, std::vector<Mutation>& mutations, std::mt19937& active_rng);
+
+    /**
+     * Process a single sequence entry using the engine-level random number generator
+     * @param entry Sequence entry to mutate (modified in place)
+     * @param mutations Output vector to store mutations
      */
     void processSequenceEntry(SequenceEntry& entry, std::vector<Mutation>& mutations);
     
     /**
      * Apply ancient DNA damage as a second pass (orthogonal to mutation mode)
+     * @param entry Sequence entry to apply damage to (modified in place)
+     * @param mutations Output vector to append damage mutations
+     * @param active_rng Random number generator to use
+     */
+    void applyAncientDamage(SequenceEntry& entry, std::vector<Mutation>& mutations, std::mt19937& active_rng);
+
+    /**
+     * Apply ancient DNA damage using the engine-level random number generator
      * @param entry Sequence entry to apply damage to (modified in place)
      * @param mutations Output vector to append damage mutations
      */
@@ -660,6 +751,18 @@ private:
      * @param num_threads Number of threads that created temp files
      */
     void mergeOutputFiles(int num_threads);
+
+    /**
+     * Process paired-end FASTQ sequentially for low thread counts
+     * @return Statistics about processed read pairs
+     */
+    GenomeStats processPairedEndSequential();
+
+    /**
+     * Process paired-end FASTQ with ordered producer/worker/writer streaming
+     * @return Statistics about processed read pairs
+     */
+    GenomeStats processPairedEndThreaded();
     
     // ========================================================================
     // File I/O Functions

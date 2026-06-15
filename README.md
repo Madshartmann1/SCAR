@@ -56,7 +56,7 @@ For mapper-ready paired-end mutation, keep R1 and R2 separate:
 ```bash
 ./scar --input-r1 R1.fastq.gz --input-r2 R2.fastq.gz \
     --output-r1 mutated_R1 --output-r2 mutated_R2 \
-    --mutation-rate 0.001 --seed 27
+    --mutation-rate 0.001 --threads 8 --seed 27
 ```
 
 ### Expected Input
@@ -68,6 +68,10 @@ same order. SCAR reads one R1 record and one R2 record at a time, checks that th
 normalized read names match, and aborts on pair-name or record-count mismatch.
 Headers such as `@ERR13719744.1` in both mates are valid. `/1` and `/2` suffixes
 are ignored for pair matching.
+
+Paired-end mode uses deterministic per-read random seeds from the global seed,
+pair index, normalized pair name, and mate label. With the same input and `--seed`,
+paired-end output is stable across thread counts and chunk sizes.
 <!---
 ### Quick Examples
 
@@ -106,7 +110,7 @@ Paired-end FASTQ example:
 ```bash
 ./scar --input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz \
     --output-r1 mutated_R1 --output-r2 mutated_R2 \
-    --mutation-rate 0.001 --seed 27
+    --mutation-rate 0.001 --threads 8 --seed 27
 ```
 
 ### Mode 2: Flat Number (`--num-mutations`)
@@ -493,9 +497,11 @@ In paired-end mode, SCAR writes one SNP receipt per mate:
 
 #### Paired-End Synchronized Mode
 - **Triggered by**: `--input-r1`, `--input-r2`, `--output-r1`, and `--output-r2`
-- **Characteristics**: Reads one R1 and one R2 record at a time, validates pair names, writes synchronized mate outputs
+- **Characteristics**: Validates synchronized R1/R2 chunks, mutates with deterministic per-read RNG, writes mate outputs in original order
 - **Best for**: Mapper-ready paired-end mutation/damage without fragmentation
 - **Rejects**: Fragmentation and `--num-mutations`
+- **Threads**: `--threads 1` or `2` uses sequential PE mode; `--threads >= 3` uses 1 producer, `N-2` workers, and 1 ordered writer
+- **Memory bound**: `--max-pending-chunks` limits queued PE chunks. Default is `min(--threads, 32)`. If `--threads > 32` and no explicit cap is set, SCAR warns to `stderr` and uses 32.
 
 
 ## Troubleshooting
@@ -562,12 +568,12 @@ gunzip -c reads.fastq.gz > reads.fastq
 - **Worker threads**: Process mutations, write to thread-specific temporary files
 - **Main thread**: Merges worker outputs into final file
 - **Progress thread**: Reports status every 10 seconds
-- **Paired-end mode**: Processes R1/R2 pairs sequentially to preserve exact mate synchronization. `--threads` is accepted but paired-end retention does not use the single-end worker merge architecture.
+- **Paired-end mode**: Uses sequential processing for `--threads < 3`; otherwise uses a producer/worker/writer pipeline with ordered chunk output.
 
 ### Random Number Generation
-- C++ `<random>` library with Mersenne Twister (mt19937_64)
+- C++ `<random>` library with Mersenne Twister (`std::mt19937`)
 - Seeded for reproducibility (`--seed` option)
-- Each worker thread has independent RNG (seeded from main seed)
+- Paired-end mode derives deterministic per-read RNG seeds from `--seed`, pair index, normalized pair name, and mate label, so results are stable across PE thread counts.
 
 ### Quality Score Handling
 - FASTQ quality scores preserved byte-for-byte

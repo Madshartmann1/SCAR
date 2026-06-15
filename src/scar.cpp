@@ -64,6 +64,138 @@ std::string normalizeReadNameForPairing(const std::string& header_without_prefix
     return normalized_name;
 }
 
+struct PairedReadChunk {
+    size_t chunk_index = 0;
+    size_t first_pair_index = 0;
+    std::vector<SequenceEntry> r1_records;
+    std::vector<SequenceEntry> r2_records;
+    std::vector<std::string> normalized_pair_names;
+};
+
+struct ProcessedPairedReadChunk {
+    size_t chunk_index = 0;
+    std::vector<SequenceEntry> r1_records;
+    std::vector<SequenceEntry> r2_records;
+    std::vector<Mutation> r1_mutations;
+    std::vector<Mutation> r2_mutations;
+    size_t total_length = 0;
+    size_t pair_count = 0;
+};
+
+uint64_t mixStableSeed(uint64_t value) {
+    value += 0x9e3779b97f4a7c15ULL;
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+    return value ^ (value >> 31);
+}
+
+uint64_t hashStableString(const std::string& value) {
+    uint64_t hash = 1469598103934665603ULL;
+    for (unsigned char character : value) {
+        hash ^= static_cast<uint64_t>(character);
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+std::mt19937 makePairedEndReadRng(unsigned int global_seed,
+                                  size_t pair_index,
+                                  const std::string& normalized_pair_name,
+                                  const std::string& mate_label) {
+    uint64_t seed_value = mixStableSeed(static_cast<uint64_t>(global_seed));
+    seed_value ^= mixStableSeed(static_cast<uint64_t>(pair_index) + 0x1234ULL);
+    seed_value ^= mixStableSeed(hashStableString(normalized_pair_name));
+    seed_value ^= mixStableSeed(hashStableString(mate_label));
+
+    std::seed_seq seed_sequence{
+        static_cast<uint32_t>(seed_value & 0xffffffffULL),
+        static_cast<uint32_t>((seed_value >> 32) & 0xffffffffULL),
+        static_cast<uint32_t>(global_seed),
+        static_cast<uint32_t>(pair_index & 0xffffffffULL),
+        static_cast<uint32_t>((pair_index >> 32) & 0xffffffffULL)
+    };
+
+    return std::mt19937(seed_sequence);
+}
+
+bool readPairedEndFastqRecord(GzipFile& input_file,
+                              const std::string& mate_label,
+                              size_t record_number,
+                              SequenceEntry& record) {
+    std::string header_line;
+    if (!input_file.getline(header_line)) {
+        return false;
+    }
+
+    if (header_line.empty() || header_line[0] != '@') {
+        throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                 std::to_string(record_number) + ": expected '@' header");
+    }
+
+    std::string sequence_line;
+    std::string separator_line;
+    std::string quality_line;
+
+    if (!input_file.getline(sequence_line)) {
+        throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                 std::to_string(record_number) + ": missing sequence");
+    }
+    if (!input_file.getline(separator_line) || separator_line.empty() || separator_line[0] != '+') {
+        throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                 std::to_string(record_number) + ": expected '+' separator");
+    }
+    if (!input_file.getline(quality_line)) {
+        throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                 std::to_string(record_number) + ": missing quality");
+    }
+    if (sequence_line.length() != quality_line.length()) {
+        throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
+                                 std::to_string(record_number) + ": sequence and quality length differ");
+    }
+
+    std::transform(sequence_line.begin(), sequence_line.end(), sequence_line.begin(), ::toupper);
+    record = SequenceEntry(header_line.substr(1), sequence_line, quality_line);
+    return true;
+}
+
+void validatePairedEndNames(const SequenceEntry& r1_record,
+                            const SequenceEntry& r2_record,
+                            size_t pair_index,
+                            std::string& normalized_pair_name) {
+    std::string r1_pair_name = normalizeReadNameForPairing(r1_record.id);
+    std::string r2_pair_name = normalizeReadNameForPairing(r2_record.id);
+    if (r1_pair_name != r2_pair_name) {
+        throw std::runtime_error("R1/R2 pair name mismatch at pair " +
+                                 std::to_string(pair_index + 1) + ": " +
+                                 r1_pair_name + " != " + r2_pair_name);
+    }
+
+    normalized_pair_name = r1_pair_name;
+}
+
+void writePairedEndFastqRecord(GzipFile& output_file, const SequenceEntry& record) {
+    output_file.write("@" + record.id + "\n");
+    output_file.write(record.sequence + "\n");
+    output_file.write("+\n");
+    output_file.write(record.quality + "\n");
+}
+
+void writePairedEndSnpRecords(std::ofstream& snp_file, const std::vector<Mutation>& mutations) {
+    for (const Mutation& mutation : mutations) {
+        snp_file << mutation.seq_id << "\t"
+                 << mutation.position << "\t"
+                 << mutation.original << "\t"
+                 << mutation.new_base << "\n";
+    }
+}
+
+void renameCompletedOutput(const std::string& temporary_output, const std::string& final_output) {
+    if (std::rename(temporary_output.c_str(), final_output.c_str()) != 0) {
+        throw std::runtime_error("Cannot rename temporary output " + temporary_output +
+                                 " to final output " + final_output);
+    }
+}
+
 bool looksLikeScarDamageProfileFile(const std::string& filename) {
     std::ifstream file(filename);
     if (!file.is_open()) {
@@ -740,7 +872,7 @@ std::vector<char> MutationEngine::getTransversions(char base) const {
     }
 }
 
-char MutationEngine::selectMutatedBase(char original) {
+char MutationEngine::selectMutatedBase(char original, std::mt19937& active_rng) {
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
     
     switch(config.mode) {
@@ -749,19 +881,19 @@ char MutationEngine::selectMutatedBase(char original) {
             // Random uniform selection from other 3 bases
             std::vector<char> others = getOtherBases(original);
             std::uniform_int_distribution<int> dist(0, others.size() - 1);
-            return others[dist(rng)];
+            return others[dist(active_rng)];
         }
         
         case MutationMode::SEPARATE_TS_TV:
         case MutationMode::TS_TV_RATIO: {
             // Weighted selection based on Ts/Tv rates
             double ts_prob = config.ts_rate / (config.ts_rate + config.tv_rate);
-            if (uniform(rng) < ts_prob) {
+            if (uniform(active_rng) < ts_prob) {
                 return getTransition(original);
             } else {
                 std::vector<char> tvs = getTransversions(original);
                 std::uniform_int_distribution<int> dist(0, tvs.size() - 1);
-                return tvs[dist(rng)];
+                return tvs[dist(active_rng)];
             }
         }
         
@@ -782,7 +914,7 @@ char MutationEngine::selectMutatedBase(char original) {
             }
             
             // Select based on weights
-            double rand_val = uniform(rng) * total_weight;
+            double rand_val = uniform(active_rng) * total_weight;
             double cumulative = 0.0;
             for (size_t i = 0; i < targets.size(); i++) {
                 cumulative += weights[i];
@@ -812,7 +944,7 @@ char MutationEngine::selectMutatedBase(char original) {
             }
             
             // Select based on weights (should sum to proportions for this base)
-            double rand_val = uniform(rng) * total_weight;
+            double rand_val = uniform(active_rng) * total_weight;
             double cumulative = 0.0;
             for (size_t i = 0; i < targets.size(); i++) {
                 cumulative += weights[i];
@@ -827,6 +959,10 @@ char MutationEngine::selectMutatedBase(char original) {
     }
     
     return original; // Shouldn't reach here
+}
+
+char MutationEngine::selectMutatedBase(char original) {
+    return selectMutatedBase(original, rng);
 }
 
 // ============================================================================
@@ -1225,7 +1361,7 @@ void MutationEngine::applyMutations(
 // Streaming Mode - Process Single Entry
 // ============================================================================
 
-void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Mutation>& mutations) {
+void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Mutation>& mutations, std::mt19937& active_rng) {
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
     
     // For FLAT_NUMBER mode in streaming, we need a different approach
@@ -1245,26 +1381,26 @@ void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Muta
             
             switch(config.mode) {
                 case MutationMode::FLAT_RATE:
-                    mutate = uniform(rng) < config.mutation_rate;
+                    mutate = uniform(active_rng) < config.mutation_rate;
                     break;
                 
                 case MutationMode::SEPARATE_TS_TV:
                 case MutationMode::TS_TV_RATIO: {
                     double total_rate = config.ts_rate + config.tv_rate;
-                    mutate = uniform(rng) < total_rate;
+                    mutate = uniform(active_rng) < total_rate;
                     break;
                 }
                 
                 case MutationMode::CUSTOM_MATRIX: {
                     double total_rate = matrix.getTotalRate(base);
-                    mutate = uniform(rng) < total_rate;
+                    mutate = uniform(active_rng) < total_rate;
                     break;
                 }
                 
                 case MutationMode::CUSTOM_SPECTRUM: {
                     // Spectrum with mutation rate
                     if (config.mutation_rate > 0) {
-                        mutate = uniform(rng) < config.mutation_rate;
+                        mutate = uniform(active_rng) < config.mutation_rate;
                     }
                     break;
                 }
@@ -1274,7 +1410,7 @@ void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Muta
             }
             
             if (mutate) {
-                char new_base = selectMutatedBase(base);
+                char new_base = selectMutatedBase(base, active_rng);
                 mutations.emplace_back(entry.id, i + 1, base, new_base);
                 entry.sequence[i] = new_base;
                 // Quality score remains unchanged
@@ -1284,11 +1420,15 @@ void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Muta
     
     // Apply ancient damage as a second pass if damage profile is loaded
     if (!config.damage_file.empty()) {
-        applyAncientDamage(entry, mutations);
+        applyAncientDamage(entry, mutations, active_rng);
     }
 }
 
-void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutation>& mutations) {
+void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Mutation>& mutations) {
+    processSequenceEntry(entry, mutations, rng);
+}
+
+void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutation>& mutations, std::mt19937& active_rng) {
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
     size_t seq_length = entry.sequence.length();
     
@@ -1315,7 +1455,7 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
         for (char target : {'A', 'C', 'G', 'T'}) {
             if (base == target) continue;
             double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, target);
-            if (damage_5p > 0 && uniform(rng) < damage_5p) {
+            if (damage_5p > 0 && uniform(active_rng) < damage_5p) {
                 mutate = true;
                 new_base = target;
                 break;
@@ -1327,7 +1467,7 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
             for (char target : {'A', 'C', 'G', 'T'}) {
                 if (base == target) continue;
                 double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, target);
-                if (damage_3p > 0 && uniform(rng) < damage_3p) {
+                if (damage_3p > 0 && uniform(active_rng) < damage_3p) {
                     mutate = true;
                     new_base = target;
                     break;
@@ -1336,11 +1476,11 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
         }
         
         // Apply background mutation rate if specified and not already mutated
-        if (!mutate && config.background_rate > 0 && uniform(rng) < config.background_rate) {
+        if (!mutate && config.background_rate > 0 && uniform(active_rng) < config.background_rate) {
             mutate = true;
             std::vector<char> others = getOtherBases(base);
             std::uniform_int_distribution<int> dist(0, others.size() - 1);
-            new_base = others[dist(rng)];
+            new_base = others[dist(active_rng)];
         }
         
         if (mutate) {
@@ -1349,6 +1489,10 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
             // Quality score remains unchanged
         }
     }
+}
+
+void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutation>& mutations) {
+    applyAncientDamage(entry, mutations, rng);
 }
 
 // ============================================================================
@@ -1769,6 +1913,14 @@ GenomeStats MutationEngine::processStreaming() {
 // ============================================================================
 
 GenomeStats MutationEngine::processPairedEnd() {
+    if (config.num_threads < 3) {
+        return processPairedEndSequential();
+    }
+
+    return processPairedEndThreaded();
+}
+
+GenomeStats MutationEngine::processPairedEndSequential() {
     if (detectFileFormat(config.input_r1_file) != FileFormat::FASTQ ||
         detectFileFormat(config.input_r2_file) != FileFormat::FASTQ) {
         throw std::runtime_error("Paired-end mode requires FASTQ input for both --input-r1 and --input-r2");
@@ -1780,78 +1932,26 @@ GenomeStats MutationEngine::processPairedEnd() {
     std::string r2_fastq_output = config.output_r2_prefix + ".fastq" + (compress_r2 ? ".gz" : "");
     std::string r1_snp_output = config.output_r1_prefix + ".snp";
     std::string r2_snp_output = config.output_r2_prefix + ".snp";
+    std::string r1_fastq_temporary_output = r1_fastq_output + ".tmp";
+    std::string r2_fastq_temporary_output = r2_fastq_output + ".tmp";
+    std::string r1_snp_temporary_output = r1_snp_output + ".tmp";
+    std::string r2_snp_temporary_output = r2_snp_output + ".tmp";
 
     GzipFile r1_input(config.input_r1_file, "r");
     GzipFile r2_input(config.input_r2_file, "r");
-    GzipFile r1_output(r1_fastq_output, "w", compress_r1);
-    GzipFile r2_output(r2_fastq_output, "w", compress_r2);
-    std::ofstream r1_snp_file(r1_snp_output);
-    std::ofstream r2_snp_file(r2_snp_output);
+    GzipFile r1_output(r1_fastq_temporary_output, "w", compress_r1);
+    GzipFile r2_output(r2_fastq_temporary_output, "w", compress_r2);
+    std::ofstream r1_snp_file(r1_snp_temporary_output);
+    std::ofstream r2_snp_file(r2_snp_temporary_output);
 
     if (!r1_snp_file.is_open()) {
-        throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_output);
+        throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_temporary_output);
     }
     if (!r2_snp_file.is_open()) {
-        throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_output);
+        throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_temporary_output);
     }
 
-    auto read_fastq_record = [](GzipFile& input_file,
-                                const std::string& mate_label,
-                                size_t record_number,
-                                SequenceEntry& record) {
-        std::string header_line;
-        if (!input_file.getline(header_line)) {
-            return false;
-        }
-
-        if (header_line.empty() || header_line[0] != '@') {
-            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
-                                     std::to_string(record_number) + ": expected '@' header");
-        }
-
-        std::string sequence_line;
-        std::string separator_line;
-        std::string quality_line;
-
-        if (!input_file.getline(sequence_line)) {
-            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
-                                     std::to_string(record_number) + ": missing sequence");
-        }
-        if (!input_file.getline(separator_line) || separator_line.empty() || separator_line[0] != '+') {
-            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
-                                     std::to_string(record_number) + ": expected '+' separator");
-        }
-        if (!input_file.getline(quality_line)) {
-            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
-                                     std::to_string(record_number) + ": missing quality");
-        }
-        if (sequence_line.length() != quality_line.length()) {
-            throw std::runtime_error("Malformed " + mate_label + " FASTQ at record " +
-                                     std::to_string(record_number) + ": sequence and quality length differ");
-        }
-
-        std::transform(sequence_line.begin(), sequence_line.end(), sequence_line.begin(), ::toupper);
-        record = SequenceEntry(header_line.substr(1), sequence_line, quality_line);
-        return true;
-    };
-
-    auto write_fastq_record = [](GzipFile& output_file, const SequenceEntry& record) {
-        output_file.write("@" + record.id + "\n");
-        output_file.write(record.sequence + "\n");
-        output_file.write("+\n");
-        output_file.write(record.quality + "\n");
-    };
-
-    auto write_snp_records = [](std::ofstream& snp_file, const std::vector<Mutation>& mutations) {
-        for (const Mutation& mutation : mutations) {
-            snp_file << mutation.seq_id << "\t"
-                     << mutation.position << "\t"
-                     << mutation.original << "\t"
-                     << mutation.new_base << "\n";
-        }
-    };
-
-    std::cout << "Processing paired-end FASTQ in synchronized mode..." << std::endl;
+    std::cout << "Processing paired-end FASTQ in sequential synchronized mode..." << std::endl;
 
     GenomeStats stats;
     stats.is_streaming = true;
@@ -1863,8 +1963,8 @@ GenomeStats MutationEngine::processPairedEnd() {
         SequenceEntry r1_record;
         SequenceEntry r2_record;
         size_t next_record_number = pair_count + 1;
-        bool have_r1 = read_fastq_record(r1_input, "R1", next_record_number, r1_record);
-        bool have_r2 = read_fastq_record(r2_input, "R2", next_record_number, r2_record);
+        bool have_r1 = readPairedEndFastqRecord(r1_input, "R1", next_record_number, r1_record);
+        bool have_r2 = readPairedEndFastqRecord(r2_input, "R2", next_record_number, r2_record);
 
         if (!have_r1 && !have_r2) {
             break;
@@ -1874,23 +1974,20 @@ GenomeStats MutationEngine::processPairedEnd() {
                                      std::to_string(next_record_number));
         }
 
-        std::string r1_pair_name = normalizeReadNameForPairing(r1_record.id);
-        std::string r2_pair_name = normalizeReadNameForPairing(r2_record.id);
-        if (r1_pair_name != r2_pair_name) {
-            throw std::runtime_error("R1/R2 pair name mismatch at pair " +
-                                     std::to_string(next_record_number) + ": " +
-                                     r1_pair_name + " != " + r2_pair_name);
-        }
+        std::string normalized_pair_name;
+        validatePairedEndNames(r1_record, r2_record, pair_count, normalized_pair_name);
 
         r1_mutations.clear();
         r2_mutations.clear();
-        processSequenceEntry(r1_record, r1_mutations);
-        processSequenceEntry(r2_record, r2_mutations);
+        std::mt19937 r1_rng = makePairedEndReadRng(config.seed, pair_count, normalized_pair_name, "R1");
+        std::mt19937 r2_rng = makePairedEndReadRng(config.seed, pair_count, normalized_pair_name, "R2");
+        processSequenceEntry(r1_record, r1_mutations, r1_rng);
+        processSequenceEntry(r2_record, r2_mutations, r2_rng);
 
-        write_fastq_record(r1_output, r1_record);
-        write_fastq_record(r2_output, r2_record);
-        write_snp_records(r1_snp_file, r1_mutations);
-        write_snp_records(r2_snp_file, r2_mutations);
+        writePairedEndFastqRecord(r1_output, r1_record);
+        writePairedEndFastqRecord(r2_output, r2_record);
+        writePairedEndSnpRecords(r1_snp_file, r1_mutations);
+        writePairedEndSnpRecords(r2_snp_file, r2_mutations);
 
         pair_count++;
         stats.total_length += r1_record.sequence.length() + r2_record.sequence.length();
@@ -1902,11 +1999,264 @@ GenomeStats MutationEngine::processPairedEnd() {
     r1_snp_file.close();
     r2_snp_file.close();
 
+    renameCompletedOutput(r1_fastq_temporary_output, r1_fastq_output);
+    renameCompletedOutput(r2_fastq_temporary_output, r2_fastq_output);
+    renameCompletedOutput(r1_snp_temporary_output, r1_snp_output);
+    renameCompletedOutput(r2_snp_temporary_output, r2_snp_output);
+
     stats.num_sequences = pair_count * 2;
     processed_count.store(stats.num_sequences);
 
     std::cout << "Processing complete!" << std::endl;
     std::cout << "Read pairs processed: " << pair_count << std::endl;
+    std::cout << "Output files:" << std::endl;
+    std::cout << "  - " << r1_fastq_output << std::endl;
+    std::cout << "  - " << r2_fastq_output << std::endl;
+    std::cout << "  - " << r1_snp_output << std::endl;
+    std::cout << "  - " << r2_snp_output << std::endl;
+
+    return stats;
+}
+
+GenomeStats MutationEngine::processPairedEndThreaded() {
+    if (detectFileFormat(config.input_r1_file) != FileFormat::FASTQ ||
+        detectFileFormat(config.input_r2_file) != FileFormat::FASTQ) {
+        throw std::runtime_error("Paired-end mode requires FASTQ input for both --input-r1 and --input-r2");
+    }
+
+    size_t max_pending_chunks = config.max_pending_chunks_set
+        ? config.max_pending_chunks
+        : std::min<size_t>(config.num_threads, 32);
+
+    if (!config.max_pending_chunks_set && config.num_threads > 32) {
+        std::cerr << "Warning: paired-end --max-pending-chunks capped at 32 for "
+                  << config.num_threads << " threads; override with --max-pending-chunks <N>"
+                  << std::endl;
+    }
+
+    bool compress_r1 = config.compress_output || isGzipped(config.input_r1_file);
+    bool compress_r2 = config.compress_output || isGzipped(config.input_r2_file);
+    std::string r1_fastq_output = config.output_r1_prefix + ".fastq" + (compress_r1 ? ".gz" : "");
+    std::string r2_fastq_output = config.output_r2_prefix + ".fastq" + (compress_r2 ? ".gz" : "");
+    std::string r1_snp_output = config.output_r1_prefix + ".snp";
+    std::string r2_snp_output = config.output_r2_prefix + ".snp";
+    std::string r1_fastq_temporary_output = r1_fastq_output + ".tmp";
+    std::string r2_fastq_temporary_output = r2_fastq_output + ".tmp";
+    std::string r1_snp_temporary_output = r1_snp_output + ".tmp";
+    std::string r2_snp_temporary_output = r2_snp_output + ".tmp";
+
+    BoundedThreadSafeQueue<std::shared_ptr<PairedReadChunk>> work_queue(max_pending_chunks);
+    BoundedThreadSafeQueue<std::shared_ptr<ProcessedPairedReadChunk>> result_queue(max_pending_chunks);
+
+    std::atomic<bool> failed(false);
+    std::mutex error_mutex;
+    std::string threaded_error_message;
+    std::atomic<size_t> total_pairs_written(0);
+    std::atomic<size_t> total_bases_written(0);
+
+    auto set_threaded_error = [&](const std::string& message) {
+        bool expected = false;
+        if (failed.compare_exchange_strong(expected, true)) {
+            std::lock_guard<std::mutex> lock(error_mutex);
+            threaded_error_message = message;
+        }
+        work_queue.setFinished();
+        result_queue.setFinished();
+    };
+
+    auto producer = [&]() {
+        try {
+            GzipFile r1_input(config.input_r1_file, "r");
+            GzipFile r2_input(config.input_r2_file, "r");
+
+            size_t pair_index = 0;
+            size_t chunk_index = 0;
+
+            while (!failed.load()) {
+                std::shared_ptr<PairedReadChunk> chunk(new PairedReadChunk());
+                chunk->chunk_index = chunk_index;
+                chunk->first_pair_index = pair_index;
+                chunk->r1_records.reserve(config.chunk_size);
+                chunk->r2_records.reserve(config.chunk_size);
+                chunk->normalized_pair_names.reserve(config.chunk_size);
+
+                for (size_t i = 0; i < config.chunk_size && !failed.load(); i++) {
+                    SequenceEntry r1_record;
+                    SequenceEntry r2_record;
+                    bool have_r1 = readPairedEndFastqRecord(r1_input, "R1", pair_index + 1, r1_record);
+                    bool have_r2 = readPairedEndFastqRecord(r2_input, "R2", pair_index + 1, r2_record);
+
+                    if (!have_r1 && !have_r2) {
+                        break;
+                    }
+                    if (have_r1 != have_r2) {
+                        throw std::runtime_error("R1/R2 record count mismatch at pair " +
+                                                 std::to_string(pair_index + 1));
+                    }
+
+                    std::string normalized_pair_name;
+                    validatePairedEndNames(r1_record, r2_record, pair_index, normalized_pair_name);
+
+                    chunk->r1_records.push_back(std::move(r1_record));
+                    chunk->r2_records.push_back(std::move(r2_record));
+                    chunk->normalized_pair_names.push_back(std::move(normalized_pair_name));
+                    pair_index++;
+                }
+
+                if (chunk->r1_records.empty()) {
+                    break;
+                }
+
+                if (!work_queue.push(chunk)) {
+                    break;
+                }
+                chunk_index++;
+            }
+
+            work_queue.setFinished();
+        } catch (const std::exception& exception) {
+            set_threaded_error(exception.what());
+        }
+    };
+
+    auto worker = [&]() {
+        try {
+            std::shared_ptr<PairedReadChunk> chunk;
+            while (!failed.load() && work_queue.pop(chunk)) {
+                std::shared_ptr<ProcessedPairedReadChunk> processed_chunk(new ProcessedPairedReadChunk());
+                processed_chunk->chunk_index = chunk->chunk_index;
+                processed_chunk->r1_records = std::move(chunk->r1_records);
+                processed_chunk->r2_records = std::move(chunk->r2_records);
+                processed_chunk->pair_count = processed_chunk->r1_records.size();
+
+                for (size_t i = 0; i < processed_chunk->pair_count; i++) {
+                    size_t pair_index = chunk->first_pair_index + i;
+                    std::mt19937 r1_rng = makePairedEndReadRng(config.seed, pair_index, chunk->normalized_pair_names[i], "R1");
+                    std::mt19937 r2_rng = makePairedEndReadRng(config.seed, pair_index, chunk->normalized_pair_names[i], "R2");
+
+                    std::vector<Mutation> r1_mutations;
+                    std::vector<Mutation> r2_mutations;
+                    processSequenceEntry(processed_chunk->r1_records[i], r1_mutations, r1_rng);
+                    processSequenceEntry(processed_chunk->r2_records[i], r2_mutations, r2_rng);
+
+                    processed_chunk->r1_mutations.insert(
+                        processed_chunk->r1_mutations.end(),
+                        r1_mutations.begin(),
+                        r1_mutations.end());
+                    processed_chunk->r2_mutations.insert(
+                        processed_chunk->r2_mutations.end(),
+                        r2_mutations.begin(),
+                        r2_mutations.end());
+                    processed_chunk->total_length += processed_chunk->r1_records[i].sequence.length();
+                    processed_chunk->total_length += processed_chunk->r2_records[i].sequence.length();
+                }
+
+                if (!result_queue.push(processed_chunk)) {
+                    break;
+                }
+            }
+        } catch (const std::exception& exception) {
+            set_threaded_error(exception.what());
+        }
+    };
+
+    auto writer = [&]() {
+        try {
+            GzipFile r1_output(r1_fastq_temporary_output, "w", compress_r1);
+            GzipFile r2_output(r2_fastq_temporary_output, "w", compress_r2);
+            std::ofstream r1_snp_file(r1_snp_temporary_output);
+            std::ofstream r2_snp_file(r2_snp_temporary_output);
+
+            if (!r1_snp_file.is_open()) {
+                throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_temporary_output);
+            }
+            if (!r2_snp_file.is_open()) {
+                throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_temporary_output);
+            }
+
+            size_t expected_chunk_index = 0;
+            std::map<size_t, std::shared_ptr<ProcessedPairedReadChunk>> pending_chunks;
+            std::shared_ptr<ProcessedPairedReadChunk> processed_chunk;
+
+            while (!failed.load() && result_queue.pop(processed_chunk)) {
+                pending_chunks[processed_chunk->chunk_index] = processed_chunk;
+
+                while (!failed.load()) {
+                    auto pending_it = pending_chunks.find(expected_chunk_index);
+                    if (pending_it == pending_chunks.end()) {
+                        break;
+                    }
+
+                    const std::shared_ptr<ProcessedPairedReadChunk>& ready_chunk = pending_it->second;
+                    for (const SequenceEntry& record : ready_chunk->r1_records) {
+                        writePairedEndFastqRecord(r1_output, record);
+                    }
+                    for (const SequenceEntry& record : ready_chunk->r2_records) {
+                        writePairedEndFastqRecord(r2_output, record);
+                    }
+                    writePairedEndSnpRecords(r1_snp_file, ready_chunk->r1_mutations);
+                    writePairedEndSnpRecords(r2_snp_file, ready_chunk->r2_mutations);
+
+                    total_pairs_written.fetch_add(ready_chunk->pair_count);
+                    total_bases_written.fetch_add(ready_chunk->total_length);
+                    pending_chunks.erase(pending_it);
+                    expected_chunk_index++;
+                }
+            }
+
+            r1_output.close();
+            r2_output.close();
+            r1_snp_file.close();
+            r2_snp_file.close();
+        } catch (const std::exception& exception) {
+            set_threaded_error(exception.what());
+        }
+    };
+
+    std::cout << "Processing paired-end FASTQ in threaded synchronized mode..." << std::endl;
+    std::cout << "Threads: " << config.num_threads
+              << " (1 producer, " << (config.num_threads - 2)
+              << " workers, 1 writer)" << std::endl;
+    std::cout << "Max pending chunks: " << max_pending_chunks << std::endl;
+
+    std::thread producer_thread(producer);
+    std::vector<std::thread> worker_threads;
+    for (unsigned int i = 0; i < config.num_threads - 2; i++) {
+        worker_threads.emplace_back(worker);
+    }
+    std::thread writer_thread(writer);
+
+    producer_thread.join();
+    for (std::thread& worker_thread : worker_threads) {
+        worker_thread.join();
+    }
+    result_queue.setFinished();
+    writer_thread.join();
+
+    if (failed.load()) {
+        std::remove(r1_fastq_temporary_output.c_str());
+        std::remove(r2_fastq_temporary_output.c_str());
+        std::remove(r1_snp_temporary_output.c_str());
+        std::remove(r2_snp_temporary_output.c_str());
+
+        std::lock_guard<std::mutex> lock(error_mutex);
+        throw std::runtime_error(threaded_error_message);
+    }
+
+    renameCompletedOutput(r1_fastq_temporary_output, r1_fastq_output);
+    renameCompletedOutput(r2_fastq_temporary_output, r2_fastq_output);
+    renameCompletedOutput(r1_snp_temporary_output, r1_snp_output);
+    renameCompletedOutput(r2_snp_temporary_output, r2_snp_output);
+
+    GenomeStats stats;
+    stats.is_streaming = true;
+    stats.num_sequences = total_pairs_written.load() * 2;
+    stats.total_length = total_bases_written.load();
+    stats.valid_positions = total_bases_written.load();
+    processed_count.store(stats.num_sequences);
+
+    std::cout << "Processing complete!" << std::endl;
+    std::cout << "Read pairs processed: " << total_pairs_written.load() << std::endl;
     std::cout << "Output files:" << std::endl;
     std::cout << "  - " << r1_fastq_output << std::endl;
     std::cout << "  - " << r2_fastq_output << std::endl;
@@ -2404,6 +2754,17 @@ Config ArgumentParser::parse() {
     
     if (hasOption("--chunk-size")) {
         config.chunk_size = std::stoull(getOptionValue("--chunk-size"));
+        if (config.chunk_size == 0) {
+            throw std::runtime_error("--chunk-size must be > 0");
+        }
+    }
+
+    if (hasOption("--max-pending-chunks")) {
+        config.max_pending_chunks = std::stoull(getOptionValue("--max-pending-chunks"));
+        config.max_pending_chunks_set = true;
+        if (config.max_pending_chunks == 0) {
+            throw std::runtime_error("--max-pending-chunks must be > 0");
+        }
     }
     
     if (hasOption("--format")) {
@@ -2533,6 +2894,7 @@ Optional arguments:
   -s, --seed <N>        Random seed for reproducibility (default: current time)
   -t, --threads <N>     Number of threads for streaming mode (default: 4)
   --chunk-size <N>      Sequences per chunk in streaming mode (default: 10000)
+  --max-pending-chunks <N>  Max queued paired-end chunks (default: min(threads, 32))
   --format <fasta|fastq> Force input format (default: auto-detect)
   --gz                  Force gzip compression of output (default: match input)
   -h, --help            Show this help message
