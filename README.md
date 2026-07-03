@@ -458,7 +458,7 @@ Format matches input:
   Outputs: `output_R1.fastq.gz` and `output_R2.fastq.gz`
 
 
-### SNP File (`prefix.snp`)
+### SNP File (`prefix.snp[.gz]`)
 Seqtk-compatible format (tab-delimited):
 ```
 seq_1       45      A       G
@@ -469,13 +469,13 @@ seq_2       89      G       A
 Columns: `sequence_name`, `position` (1-based), `original_base`, `mutated_base`
 
 In paired-end mode, SCAR writes one SNP receipt per mate:
-- `--output-r1 sample_R1` → `sample_R1.fastq[.gz]` and `sample_R1.snp`
-- `--output-r2 sample_R2` → `sample_R2.fastq[.gz]` and `sample_R2.snp`
+- `--output-r1 sample_R1` → `sample_R1.fastq[.gz]` and `sample_R1.snp[.gz]`
+- `--output-r2 sample_R2` → `sample_R2.fastq[.gz]` and `sample_R2.snp[.gz]`
 
 **Gzip compression**: Output compression matches input by default. Use `--gz` to force compression of uncompressed input:
 - `genome.fa` + `--gz` → `prefix.fa.gz` (compressed output from plain input)
 - `genome.fa` (no --gz) → `prefix.fa` (plain output from plain input)
-- `reads.fastq.gz` → `prefix.fastq.gz` (compressed output from compressed input)
+- `reads.fastq.gz` → `prefix.fastq.gz` and `prefix.snp.gz` (compressed output from compressed input)
 - Paired-end output compression follows each mate input by default; use `--gz`
   to force compressed output.
 

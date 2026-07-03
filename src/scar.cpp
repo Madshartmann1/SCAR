@@ -180,12 +180,17 @@ void writePairedEndFastqRecord(GzipFile& output_file, const SequenceEntry& recor
     output_file.write(record.quality + "\n");
 }
 
-void writePairedEndSnpRecords(std::ofstream& snp_file, const std::vector<Mutation>& mutations) {
+std::string formatSnpRecord(const Mutation& mutation) {
+    // Keep SNP receipt formatting identical across in-memory, streaming, and paired-end writers.
+    return mutation.seq_id + "\t" +
+           std::to_string(mutation.position) + "\t" +
+           std::string(1, mutation.original) + "\t" +
+           std::string(1, mutation.new_base) + "\n";
+}
+
+void writePairedEndSnpRecords(GzipFile& snp_file, const std::vector<Mutation>& mutations) {
     for (const Mutation& mutation : mutations) {
-        snp_file << mutation.seq_id << "\t"
-                 << mutation.position << "\t"
-                 << mutation.original << "\t"
-                 << mutation.new_base << "\n";
+        snp_file.write(formatSnpRecord(mutation));
     }
 }
 
@@ -1586,14 +1591,11 @@ void MutationEngine::workerThread(
         bool compress = config.compress_output || isGzipped(config.input_file);
         std::string fa_temp = config.output_prefix + ".thread" + std::to_string(thread_id) + 
                              (compress ? ".fa.gz" : ".fa");
-        std::string snp_temp = config.output_prefix + ".thread" + std::to_string(thread_id) + ".snp";
+        std::string snp_temp = config.output_prefix + ".thread" + std::to_string(thread_id) +
+                               ".snp" + (compress ? ".gz" : "");
         
         GzipFile fa_out(fa_temp, "w", compress);
-        std::ofstream snp_out(snp_temp);
-        
-        if (!snp_out.is_open()) {
-            throw std::runtime_error("Cannot open SNP temp file: " + snp_temp);
-        }
+        GzipFile snp_out(snp_temp, "w", compress);
         
         // Process chunks from queue
         std::vector<SequenceEntry> chunk;
@@ -1639,8 +1641,7 @@ void MutationEngine::workerThread(
                     
                     // Write SNP entries
                     for (const Mutation& mut : mutations) {
-                        snp_out << mut.seq_id << "\t" << mut.position << "\t" 
-                               << mut.original << "\t" << mut.new_base << "\n";
+                        snp_out.write(formatSnpRecord(mut));
                     }
                 }
             }
@@ -1776,7 +1777,7 @@ void MutationEngine::mergeOutputFiles(int num_threads) {
     std::string fa_output = config.output_prefix + 
                            (format == FileFormat::FASTA ? ".fa" : ".fastq") +
                            (compress ? ".gz" : "");
-    std::string snp_output = config.output_prefix + ".snp";
+    std::string snp_output = config.output_prefix + ".snp" + (compress ? ".gz" : "");
     
     // Merge sequence files
     {
@@ -1802,15 +1803,16 @@ void MutationEngine::mergeOutputFiles(int num_threads) {
     
     // Merge SNP files
     {
-        std::ofstream out(snp_output);
+        GzipFile out(snp_output, "w", compress);
         
         for (int i = 0; i < num_threads; i++) {
-            std::string temp_snp = config.output_prefix + ".thread" + std::to_string(i) + ".snp";
+            std::string temp_snp = config.output_prefix + ".thread" + std::to_string(i) +
+                                   ".snp" + (compress ? ".gz" : "");
             
-            std::ifstream in(temp_snp);
+            GzipFile in(temp_snp, "r");
             std::string line;
-            while (std::getline(in, line)) {
-                out << line << "\n";
+            while (in.getline(line)) {
+                out.write(line + "\n");
             }
             in.close();
             
@@ -1930,8 +1932,8 @@ GenomeStats MutationEngine::processPairedEndSequential() {
     bool compress_r2 = config.compress_output || isGzipped(config.input_r2_file);
     std::string r1_fastq_output = config.output_r1_prefix + ".fastq" + (compress_r1 ? ".gz" : "");
     std::string r2_fastq_output = config.output_r2_prefix + ".fastq" + (compress_r2 ? ".gz" : "");
-    std::string r1_snp_output = config.output_r1_prefix + ".snp";
-    std::string r2_snp_output = config.output_r2_prefix + ".snp";
+    std::string r1_snp_output = config.output_r1_prefix + ".snp" + (compress_r1 ? ".gz" : "");
+    std::string r2_snp_output = config.output_r2_prefix + ".snp" + (compress_r2 ? ".gz" : "");
     std::string r1_fastq_temporary_output = r1_fastq_output + ".tmp";
     std::string r2_fastq_temporary_output = r2_fastq_output + ".tmp";
     std::string r1_snp_temporary_output = r1_snp_output + ".tmp";
@@ -1941,15 +1943,8 @@ GenomeStats MutationEngine::processPairedEndSequential() {
     GzipFile r2_input(config.input_r2_file, "r");
     GzipFile r1_output(r1_fastq_temporary_output, "w", compress_r1);
     GzipFile r2_output(r2_fastq_temporary_output, "w", compress_r2);
-    std::ofstream r1_snp_file(r1_snp_temporary_output);
-    std::ofstream r2_snp_file(r2_snp_temporary_output);
-
-    if (!r1_snp_file.is_open()) {
-        throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_temporary_output);
-    }
-    if (!r2_snp_file.is_open()) {
-        throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_temporary_output);
-    }
+    GzipFile r1_snp_file(r1_snp_temporary_output, "w", compress_r1);
+    GzipFile r2_snp_file(r2_snp_temporary_output, "w", compress_r2);
 
     std::cout << "Processing paired-end FASTQ in sequential synchronized mode..." << std::endl;
 
@@ -2038,8 +2033,8 @@ GenomeStats MutationEngine::processPairedEndThreaded() {
     bool compress_r2 = config.compress_output || isGzipped(config.input_r2_file);
     std::string r1_fastq_output = config.output_r1_prefix + ".fastq" + (compress_r1 ? ".gz" : "");
     std::string r2_fastq_output = config.output_r2_prefix + ".fastq" + (compress_r2 ? ".gz" : "");
-    std::string r1_snp_output = config.output_r1_prefix + ".snp";
-    std::string r2_snp_output = config.output_r2_prefix + ".snp";
+    std::string r1_snp_output = config.output_r1_prefix + ".snp" + (compress_r1 ? ".gz" : "");
+    std::string r2_snp_output = config.output_r2_prefix + ".snp" + (compress_r2 ? ".gz" : "");
     std::string r1_fastq_temporary_output = r1_fastq_output + ".tmp";
     std::string r2_fastq_temporary_output = r2_fastq_output + ".tmp";
     std::string r1_snp_temporary_output = r1_snp_output + ".tmp";
@@ -2164,15 +2159,8 @@ GenomeStats MutationEngine::processPairedEndThreaded() {
         try {
             GzipFile r1_output(r1_fastq_temporary_output, "w", compress_r1);
             GzipFile r2_output(r2_fastq_temporary_output, "w", compress_r2);
-            std::ofstream r1_snp_file(r1_snp_temporary_output);
-            std::ofstream r2_snp_file(r2_snp_temporary_output);
-
-            if (!r1_snp_file.is_open()) {
-                throw std::runtime_error("Cannot open R1 SNP output file: " + r1_snp_temporary_output);
-            }
-            if (!r2_snp_file.is_open()) {
-                throw std::runtime_error("Cannot open R2 SNP output file: " + r2_snp_temporary_output);
-            }
+            GzipFile r1_snp_file(r1_snp_temporary_output, "w", compress_r1);
+            GzipFile r2_snp_file(r2_snp_temporary_output, "w", compress_r2);
 
             size_t expected_chunk_index = 0;
             std::map<size_t, std::shared_ptr<ProcessedPairedReadChunk>> pending_chunks;
@@ -2312,10 +2300,8 @@ void MutationEngine::writeSnpFile(
     const std::vector<Mutation>& mutations,
     const std::string& filename) {
     
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open SNP file: " + filename);
-    }
+    bool compress = config.compress_output || isGzipped(config.input_file);
+    GzipFile file(filename, "w", compress);
     
     // Sort mutations for better readability
     std::vector<Mutation> sorted_muts = mutations;
@@ -2327,10 +2313,7 @@ void MutationEngine::writeSnpFile(
     
     // Write in seqtk format: chr  1-based-pos  original  new
     for (const Mutation& mut : sorted_muts) {
-        file << mut.seq_id << "\t" 
-             << mut.position << "\t" 
-             << mut.original << "\t" 
-             << mut.new_base << "\n";
+        file.write(formatSnpRecord(mut));
     }
     
     file.close();
@@ -2380,9 +2363,11 @@ void MutationEngine::printReport(
     bool compress = config.compress_output || isGzipped(config.input_file);
     std::string ext = (format == FileFormat::FASTA ? ".fa" : ".fastq");
     if (compress) ext += ".gz";
+    std::string snp_ext = ".snp";
+    if (compress) snp_ext += ".gz";
     
     std::cout << "  - " << config.output_prefix << ext << "\n";
-    std::cout << "  - " << config.output_prefix << ".snp\n\n";
+    std::cout << "  - " << config.output_prefix << snp_ext << "\n\n";
     
     std::cout << "Processing mode: " << (genome_stats.is_streaming ? "Streaming" : "In-memory") << "\n\n";
     
@@ -2565,8 +2550,10 @@ int MutationEngine::run() {
             std::string ext = (format == FileFormat::FASTA ? ".fa" : ".fastq");
             bool compress = config.compress_output || isGzipped(config.input_file);
             if (compress) ext += ".gz";
+            std::string snp_ext = ".snp";
+            if (compress) snp_ext += ".gz";
             writeSequences(sequences, config.output_prefix + ext);
-            writeSnpFile(mutations, config.output_prefix + ".snp");
+            writeSnpFile(mutations, config.output_prefix + snp_ext);
             
             auto mutation_stats = calculateMutationStats(mutations);
             printReport(genome_stats, mutation_stats);
@@ -2948,7 +2935,7 @@ Processing pipeline:
 
 Output files:
   <prefix>.fa / .fastq[.gz]  - Mutated sequences (format matches input)
-  <prefix>.snp               - SNP receipt (seqtk format: chr pos original new)
+  <prefix>.snp[.gz]          - SNP receipt (seqtk format: chr pos original new)
   Paired-end mode writes the same suffixes for each output prefix.
 
 For more information, see README.md
