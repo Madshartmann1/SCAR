@@ -1,6 +1,6 @@
 # SCAR — Sequences + Controlled mutations + Ancient damage + fRagmentation
 
-**Version 0.5* 
+**Version 1.0* 
 
 `SCAR` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
 
