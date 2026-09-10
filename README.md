@@ -224,6 +224,12 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
 `--ancient-damage` also accepts a mapDamage output directory containing
 `misincorporation.txt`; SCAR auto-detects the format and converts it in memory.
 
+Each nucleotide is assigned to its nearest fragment end and receives damage from
+that end only. At the exact midpoint of an odd-length fragment, SCAR averages the
+5-prime and 3-prime probabilities and performs one trial. For positions farther
+from an end than the supplied profile, the final profile bin is carried forwards
+from the nearest end.
+
 ```bash
 ./scar --input reads.fastq.gz --output damaged \
     --ancient-damage mapdamage_results/ \

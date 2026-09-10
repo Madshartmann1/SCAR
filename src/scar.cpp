@@ -1246,71 +1246,6 @@ std::vector<Mutation> MutationEngine::generateRateBasedMutations(
         }
     }
     
-    // Apply ancient damage as a second pass if damage profile is loaded
-    if (!config.damage_file.empty()) {
-        for (const auto& pair : sequences) {
-            const std::string& seq_id = pair.first;
-            const std::string& seq = pair.second.sequence;
-            size_t seq_length = seq.length();
-            
-            for (size_t i = 0; i < seq_length; i++) {
-                char base = seq[i];
-                
-                if (!isValidBase(base)) continue;
-                
-                bool mutate = false;
-                char new_base = base;
-                
-                // Calculate distance from both ends
-                size_t dist_from_5p = i + 1;  // 1-based
-                size_t dist_from_3p = seq_length - i;
-                
-                // Cap at maximum position defined in profile to extend damage throughout the read
-                size_t max_pos = damage_profile.getMaxPosition();
-                if (max_pos > 0) {
-                    dist_from_5p = std::min(dist_from_5p, max_pos);
-                    dist_from_3p = std::min(dist_from_3p, max_pos);
-                }
-                
-                // Check all possible damages from 5' end
-                for (char target : {'A', 'C', 'G', 'T'}) {
-                    if (base == target) continue;
-                    double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, target);
-                    if (damage_5p > 0 && uniform(rng) < damage_5p) {
-                        mutate = true;
-                        new_base = target;
-                        break;
-                    }
-                }
-                
-                // Check all possible damages from 3' end if not already mutated
-                if (!mutate) {
-                    for (char target : {'A', 'C', 'G', 'T'}) {
-                        if (base == target) continue;
-                        double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, target);
-                        if (damage_3p > 0 && uniform(rng) < damage_3p) {
-                            mutate = true;
-                            new_base = target;
-                            break;
-                        }
-                    }
-                }
-                
-                // Apply background mutation rate if specified and not already mutated
-                if (!mutate && config.background_rate > 0 && uniform(rng) < config.background_rate) {
-                    mutate = true;
-                    std::vector<char> others = getOtherBases(base);
-                    std::uniform_int_distribution<int> dist(0, others.size() - 1);
-                    new_base = others[dist(rng)];
-                }
-                
-                if (mutate) {
-                    mutations.emplace_back(seq_id, i + 1, base, new_base);
-                }
-            }
-        }
-    }
-    
     return mutations;
 }
 
@@ -1436,6 +1371,7 @@ void MutationEngine::processSequenceEntry(SequenceEntry& entry, std::vector<Muta
 void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutation>& mutations, std::mt19937& active_rng) {
     std::uniform_real_distribution<double> uniform(0.0, 1.0);
     size_t seq_length = entry.sequence.length();
+    size_t max_pos = damage_profile.getMaxPosition();
     
     for (size_t i = 0; i < seq_length; i++) {
         char base = entry.sequence[i];
@@ -1445,38 +1381,35 @@ void MutationEngine::applyAncientDamage(SequenceEntry& entry, std::vector<Mutati
         bool mutate = false;
         char new_base = base;
         
-        // Calculate distance from both ends
-        size_t dist_from_5p = i + 1;  // 1-based
-        size_t dist_from_3p = seq_length - i;  // Distance from 3' end
-        
-        // Cap at maximum position defined in profile to extend damage throughout the read
-        size_t max_pos = damage_profile.getMaxPosition();
+        size_t dist_from_5p = i + 1;
+        size_t dist_from_3p = seq_length - i;
+        size_t profile_position = std::min(dist_from_5p, dist_from_3p);
         if (max_pos > 0) {
-            dist_from_5p = std::min(dist_from_5p, max_pos);
-            dist_from_3p = std::min(dist_from_3p, max_pos);
+            profile_position = std::min(profile_position, max_pos);
         }
-        
-        // Check all possible damages from 5' end
+
         for (char target : {'A', 'C', 'G', 'T'}) {
             if (base == target) continue;
-            double damage_5p = damage_profile.getDamage("5p", dist_from_5p, base, target);
-            if (damage_5p > 0 && uniform(active_rng) < damage_5p) {
+
+            double damage_probability = 0.0;
+            if (dist_from_5p < dist_from_3p) {
+                damage_probability = damage_profile.getDamage(
+                    "5p", profile_position, base, target);
+            } else if (dist_from_3p < dist_from_5p) {
+                damage_probability = damage_profile.getDamage(
+                    "3p", profile_position, base, target);
+            } else {
+                double damage_5p = damage_profile.getDamage(
+                    "5p", profile_position, base, target);
+                double damage_3p = damage_profile.getDamage(
+                    "3p", profile_position, base, target);
+                damage_probability = (damage_5p + damage_3p) / 2.0;
+            }
+
+            if (damage_probability > 0 && uniform(active_rng) < damage_probability) {
                 mutate = true;
                 new_base = target;
                 break;
-            }
-        }
-        
-        // Check all possible damages from 3' end if not already mutated
-        if (!mutate) {
-            for (char target : {'A', 'C', 'G', 'T'}) {
-                if (base == target) continue;
-                double damage_3p = damage_profile.getDamage("3p", dist_from_3p, base, target);
-                if (damage_3p > 0 && uniform(active_rng) < damage_3p) {
-                    mutate = true;
-                    new_base = target;
-                    break;
-                }
             }
         }
         
@@ -2545,6 +2478,12 @@ int MutationEngine::run() {
             
             std::cout << "Applying mutations...\n";
             applyMutations(sequences, mutations);
+
+            if (!config.damage_file.empty()) {
+                for (auto& sequence_pair : sequences) {
+                    applyAncientDamage(sequence_pair.second, mutations);
+                }
+            }
             
             std::cout << "Writing output files...\n";
             std::string ext = (format == FileFormat::FASTA ? ".fa" : ".fastq");
