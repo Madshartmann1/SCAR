@@ -2,6 +2,9 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <set>
 #include <stdexcept>
 #include <iomanip>
 #include <ctime>
@@ -43,6 +46,27 @@ std::vector<std::string> splitWhitespace(const std::string& line) {
     }
 
     return tokens;
+}
+
+// Cap each damage bin by the smallest earlier bin. The cap uses a 3-bin running
+// median, so a single outlier bin cannot zero the rest of the profile.
+std::vector<double> capByEarlierBins(const std::vector<double>& values) {
+    std::vector<double> capped(values.size());
+    double cap = 1.0;
+
+    for (size_t i = 0; i < values.size(); i++) {
+        capped[i] = std::min(values[i], cap);
+
+        double smoothed = values[i];
+        if (i > 0 && i + 1 < values.size()) {
+            double window[3] = {values[i - 1], values[i], values[i + 1]};
+            std::sort(window, window + 3);
+            smoothed = window[1];
+        }
+        cap = std::min(cap, smoothed);
+    }
+
+    return capped;
 }
 
 std::string firstHeaderToken(const std::string& header_without_prefix) {
@@ -555,6 +579,13 @@ void DamageProfile::loadMapDamageMisincorporationFile(const std::string& filenam
         throw std::runtime_error("Cannot open mapDamage misincorporation file: " + filename);
     }
 
+    // Counts summed over every Chr block and both strands (mapDamage reports
+    // both strands in read orientation, so they describe the same ends)
+    struct BaseCounts {
+        double c = 0.0, g = 0.0, c_to_t = 0.0, g_to_a = 0.0;
+    };
+    std::map<std::string, std::map<size_t, BaseCounts>> counts;
+
     std::string line;
     size_t line_count = 0;
 
@@ -572,31 +603,22 @@ void DamageProfile::loadMapDamageMisincorporationFile(const std::string& filenam
 
         try {
             const std::string& end = fields[1];
-            const std::string& strand = fields[2];
             size_t position = std::stoull(fields[3]);
-            double c_count = std::stod(fields[5]);
-            double g_count = std::stod(fields[6]);
             double total_count = std::stod(fields[8]);
-            double g_to_a_count = std::stod(fields[9]);
-            double c_to_t_count = std::stod(fields[10]);
-
-            // Match the historical converter: use only positive-strand rows.
-            if (strand != "+" || total_count <= 0.0) {
-                continue;
-            }
 
             if (end != "5p" && end != "3p") {
                 throw std::runtime_error("Invalid mapDamage end '" + end + "' at line " +
                                        std::to_string(line_count));
             }
-
-            if (c_count > 0.0) {
-                addDamage(end, position, 'C', 'T', c_to_t_count / c_count);
+            if (total_count <= 0.0) {
+                continue;
             }
 
-            if (g_count > 0.0) {
-                addDamage(end, position, 'G', 'A', g_to_a_count / g_count);
-            }
+            BaseCounts& row = counts[end][position];
+            row.c += std::stod(fields[5]);
+            row.g += std::stod(fields[6]);
+            row.g_to_a += std::stod(fields[9]);
+            row.c_to_t += std::stod(fields[10]);
         } catch (const std::exception& e) {
             throw std::runtime_error("Invalid mapDamage misincorporation format at line " +
                                    std::to_string(line_count) + " in " + filename +
@@ -604,8 +626,37 @@ void DamageProfile::loadMapDamageMisincorporationFile(const std::string& filenam
         }
     }
 
+    // Raw C>T and G>A also contain reference divergence, sample variants and
+    // sequencing error. At each end the opposite substitution is the undamaged
+    // control, so keep only the excess, clamped at 0. Damage cannot increase
+    // away from an end, so each bin is capped by the bins before it; this also
+    // drops deep bins that count the far end of short molecules.
+    for (const auto& end_counts : counts) {
+        std::vector<size_t> positions;
+        std::vector<double> c_to_t_excess;
+        std::vector<double> g_to_a_excess;
+        for (const auto& position_counts : end_counts.second) {
+            const BaseCounts& row = position_counts.second;
+            if (row.c <= 0.0 && row.g <= 0.0) {
+                continue;
+            }
+            double c_to_t = row.c > 0.0 ? row.c_to_t / row.c : 0.0;
+            double g_to_a = row.g > 0.0 ? row.g_to_a / row.g : 0.0;
+            positions.push_back(position_counts.first);
+            c_to_t_excess.push_back(std::max(0.0, c_to_t - g_to_a));
+            g_to_a_excess.push_back(std::max(0.0, g_to_a - c_to_t));
+        }
+
+        std::vector<double> c_to_t_damage = capByEarlierBins(c_to_t_excess);
+        std::vector<double> g_to_a_damage = capByEarlierBins(g_to_a_excess);
+        for (size_t i = 0; i < positions.size(); i++) {
+            addDamage(end_counts.first, positions[i], 'C', 'T', c_to_t_damage[i]);
+            addDamage(end_counts.first, positions[i], 'G', 'A', g_to_a_damage[i]);
+        }
+    }
+
     if (isEmpty()) {
-        throw std::runtime_error("mapDamage misincorporation file contains no usable positive-strand damage data: " +
+        throw std::runtime_error("mapDamage misincorporation file contains no usable damage data: " +
                                filename);
     }
 }
@@ -680,10 +731,33 @@ void FragmentLengthDistribution::initialize(const Config& config, std::mt19937& 
             if (mean_length <= 0 || sd_length <= 0) {
                 throw std::runtime_error("Normal/Lognormal requires --mean-length and --sd-length > 0");
             }
+            if (mode == FragmentDistribution::LOGNORMAL) {
+                // Lognormal: log(X) ~ N(μ, σ²)
+                // Need to convert mean and sd to log-space parameters
+                double variance = sd_length * sd_length;
+                log_mu = std::log(mean_length * mean_length /
+                                  std::sqrt(mean_length * mean_length + variance));
+                log_sigma = std::sqrt(std::log(1.0 + variance /
+                                               (mean_length * mean_length)));
+            }
             break;
             
         default:
             break;
+    }
+
+    size_t min_length = std::max<size_t>(config.min_fragment_length, 1);
+    size_t max_length = config.max_fragment_length > 0 ? config.max_fragment_length
+                                                       : std::numeric_limits<size_t>::max();
+    if (min_length > max_length ||
+        cumulativeProbability(max_length) <= cumulativeProbability(min_length - 1)) {
+        if (config.max_fragment_length > 0) {
+            throw std::runtime_error("No fragment length between " + std::to_string(min_length) +
+                                   " and " + std::to_string(max_length) +
+                                   " bp is possible (--min-fragment-length / --max-fragment-length)");
+        }
+        throw std::runtime_error("No fragment length of at least " + std::to_string(min_length) +
+                               " bp is possible (lower --min-fragment-length)");
     }
 }
 
@@ -752,6 +826,23 @@ void FragmentLengthDistribution::loadFromFile(const std::string& filename) {
     
     // Create the discrete distribution mapping indices to probabilities/weights
     empirical_dist = std::discrete_distribution<size_t>(weights.begin(), weights.end());
+
+    // Distinct lengths with cumulative weights, for sampling below a length limit
+    std::map<size_t, double> weight_by_length;
+    for (size_t i = 0; i < empirical_lengths.size(); i++) {
+        weight_by_length[empirical_lengths[i]] += weights[i];
+    }
+    sorted_lengths.clear();
+    cumulative_weights.clear();
+    double cumulative_weight = 0.0;
+    for (const auto& length_weight : weight_by_length) {
+        cumulative_weight += length_weight.second;
+        sorted_lengths.push_back(length_weight.first);
+        cumulative_weights.push_back(cumulative_weight);
+    }
+    if (cumulative_weight <= 0.0) {
+        throw std::runtime_error("Fragment length weights sum to 0 in " + filename);
+    }
 }
 
 size_t FragmentLengthDistribution::sample() {
@@ -782,15 +873,8 @@ size_t FragmentLengthDistribution::sample() {
         }
         
         case FragmentDistribution::LOGNORMAL: {
-            // Lognormal: log(X) ~ N(μ, σ²)
-            // Need to convert mean and sd to log-space parameters
-            double variance = sd_length * sd_length;
-            double mu = std::log(mean_length * mean_length / 
-                                std::sqrt(mean_length * mean_length + variance));
-            double sigma = std::sqrt(std::log(1.0 + variance / 
-                                            (mean_length * mean_length)));
-            
-            std::lognormal_distribution<double> dist(mu, sigma);
+            // Log-space parameters are set in initialize()
+            std::lognormal_distribution<double> dist(log_mu, log_sigma);
             double length = dist(*rng_ptr);
             return static_cast<size_t>(std::max(1.0, length));
         }
@@ -798,6 +882,85 @@ size_t FragmentLengthDistribution::sample() {
         case FragmentDistribution::NONE:
         default:
             throw std::runtime_error("Cannot sample from NONE fragment distribution");
+    }
+}
+
+size_t FragmentLengthDistribution::sample(size_t min_length, size_t max_length) {
+    if (!rng_ptr) {
+        throw std::runtime_error("RNG not initialized in FragmentLengthDistribution");
+    }
+
+    min_length = std::max<size_t>(min_length, 1);
+    if (min_length > max_length) {
+        return 0;
+    }
+    double below_min = cumulativeProbability(min_length - 1);
+    double up_to_max = cumulativeProbability(max_length);
+    if (up_to_max <= below_min) {
+        return 0;
+    }
+
+    // Plain draws first, which is cheap when most lengths are allowed. A few
+    // rejections followed by the exact inverse below still sample the
+    // truncated distribution exactly.
+    for (int attempt = 0; attempt < 8; attempt++) {
+        size_t length = sample();
+        if (length >= min_length && length <= max_length) {
+            return length;
+        }
+    }
+
+    // Inverse transform over integer lengths: the shortest length whose
+    // cumulative probability exceeds a uniform draw in the allowed range
+    std::uniform_real_distribution<double> uniform(below_min, up_to_max);
+    double target = uniform(*rng_ptr);
+    size_t low = min_length;
+    size_t high = max_length;
+    while (low < high) {
+        size_t middle = low + (high - low) / 2;
+        if (cumulativeProbability(middle) > target) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    return low;
+}
+
+double FragmentLengthDistribution::cumulativeProbability(size_t length) const {
+    if (length == 0) {
+        return 0.0;
+    }
+
+    // Parametric draws x are truncated to integer lengths (minimum 1 bp), so a
+    // length <= L means x < L + 1
+    double upper = static_cast<double>(length) + 1.0;
+
+    switch (mode) {
+        case FragmentDistribution::STATIC:
+            return length >= static_length ? 1.0 : 0.0;
+
+        case FragmentDistribution::EMPIRICAL: {
+            auto past_length = std::upper_bound(sorted_lengths.begin(), sorted_lengths.end(), length);
+            if (past_length == sorted_lengths.begin()) {
+                return 0.0;
+            }
+            return cumulative_weights[past_length - sorted_lengths.begin() - 1] /
+                   cumulative_weights.back();
+        }
+
+        case FragmentDistribution::EXPONENTIAL:
+            return 1.0 - std::exp(-upper / mean_length);
+
+        case FragmentDistribution::NORMAL:
+            return 0.5 * std::erfc(-(upper - mean_length) / (sd_length * std::sqrt(2.0)));
+
+        case FragmentDistribution::LOGNORMAL:
+            return 0.5 * std::erfc(-(std::log(upper) - log_mu) / (log_sigma * std::sqrt(2.0)));
+
+        case FragmentDistribution::NONE:
+        default:
+            return 0.0;
     }
 }
 
@@ -1447,12 +1610,16 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
     
     size_t input_length = entry.sequence.length();
     bool is_fastq = entry.isFastq();
-    
-    // Sample first fragment length
-    size_t first_sample = fragment_dist.sample();
-    
-    // OPTION C: If first sample > entire read length, discard entire read
-    if (first_sample > input_length) {
+    size_t min_length = config.min_fragment_length;
+    size_t max_length = config.max_fragment_length > 0 ? config.max_fragment_length
+                                                       : std::numeric_limits<size_t>::max();
+
+    // Every length is sampled between --min-fragment-length and
+    // --max-fragment-length. The first is also capped at the read length, so
+    // reads shorter than a sampled fragment are still used. Discard the read
+    // only if no allowed length fits.
+    size_t first_sample = fragment_dist.sample(min_length, std::min(input_length, max_length));
+    if (first_sample == 0) {
         frag_reads_too_short.fetch_add(1);
         frag_bases_discarded.fetch_add(input_length);
         return 1;  // 1 read discarded
@@ -1472,13 +1639,16 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
     };
     
     while (pos < input_length) {
-        size_t fragment_length = (fragment_num == 1) ? first_sample : fragment_dist.sample();
+        size_t fragment_length = first_sample;
+        if (fragment_num > 1) {
+            fragment_length = fragment_dist.sample(min_length, max_length);
+        }
         size_t remaining = input_length - pos;
         
         // Check if sampled length fits in remaining sequence
         if (fragment_length > remaining) {
             // Can't use this sample, check if remainder is worth keeping
-            if (remaining >= config.min_fragment_length) {
+            if (!config.drop_remainders && remaining >= config.min_fragment_length) {
                 // Keep short fragment
                 std::string frag_id = make_fragment_identifier(fragment_num, pos, remaining);
                 std::string frag_seq = entry.sequence.substr(pos, remaining);
@@ -1489,7 +1659,7 @@ size_t MutationEngine::fragmentSequence(const SequenceEntry& entry,
                 frag_short_fragments.fetch_add(1);
                 frag_bases_in_fragments.fetch_add(remaining);
             } else {
-                // Too short, discard
+                // Too short or --drop-remainders, discard
                 frag_bases_discarded.fetch_add(remaining);
             }
             break;  // Done with this read
@@ -2327,7 +2497,7 @@ void MutationEngine::printReport(
         std::cout << "  Input reads: " << total_input << "\n";
         std::cout << "  Reads discarded (too short): " << total_discarded << "\n";
         std::cout << "  Output fragments: " << total_output << "\n";
-        std::cout << "  Short fragments (< mean): " << total_short << "\n";
+        std::cout << "  Remainder fragments kept: " << total_short << "\n";
         std::cout << "  Bases processed: " << total_bases_in << " bp\n";
         std::cout << "  Bases in fragments: " << total_bases_out << " bp\n";
         std::cout << "  Bases discarded: " << total_bases_disc << " bp\n";
@@ -2551,6 +2721,36 @@ Config ArgumentParser::parse() {
         exit(0);
     }
     
+    // Reject unknown options so typos and unsupported flags are not silently ignored
+    static const std::set<std::string> options_with_value = {
+        "--input", "-i", "--output", "-o",
+        "--input-r1", "--input-r2", "--output-r1", "--output-r2",
+        "--num-mutations", "-n", "--mutation-rate", "-r",
+        "--ts-rate", "--tv-rate", "--ts-tv-ratio",
+        "--mutation-matrix", "--mutation-spectrum",
+        "--ancient-damage", "-d", "--background-rate",
+        "--fragment-length", "-f", "--fragment-distribution", "--fd",
+        "--fragment-distribution-file", "--fdf", "--mean-length", "--ml",
+        "--sd-length", "--sl", "--min-fragment-length", "--mfl",
+        "--max-fragment-length",
+        "--seed", "-s", "--threads", "-t", "--chunk-size",
+        "--max-pending-chunks", "--format"
+    };
+    static const std::set<std::string> options_without_value = {
+        "--gz", "--allow-fasta-fragmentation", "--drop-remainders"
+    };
+    for (int i = 1; i < argc; i++) {
+        std::string argument = argv[i];
+        if (options_with_value.count(argument)) {
+            if (i + 1 >= argc) {
+                throw std::runtime_error(argument + " requires a value");
+            }
+            i++;
+        } else if (!options_without_value.count(argument)) {
+            throw std::runtime_error("Unknown option or unexpected argument: " + argument);
+        }
+    }
+
     bool has_single_end_input = hasOption("--input", "-i");
     bool has_single_end_output = hasOption("--output", "-o");
     bool has_paired_end_option = hasOption("--input-r1") || hasOption("--input-r2") ||
@@ -2754,6 +2954,23 @@ Config ArgumentParser::parse() {
         }
     }
     
+    if (hasOption("--max-fragment-length")) {
+        if (config.fragment_mode == FragmentDistribution::NONE) {
+            throw std::runtime_error("--max-fragment-length requires fragmentation (--fragment-length or --fragment-distribution)");
+        }
+        config.max_fragment_length = std::stoull(getOptionValue("--max-fragment-length"));
+        if (config.max_fragment_length == 0) {
+            throw std::runtime_error("--max-fragment-length must be > 0");
+        }
+    }
+
+    if (hasOption("--drop-remainders")) {
+        if (config.fragment_mode == FragmentDistribution::NONE) {
+            throw std::runtime_error("--drop-remainders requires fragmentation (--fragment-length or --fragment-distribution)");
+        }
+        config.drop_remainders = true;
+    }
+
     // Compression option
     if (hasOption("--gz")) {
         config.compress_output = true;
@@ -2777,7 +2994,7 @@ Config ArgumentParser::parse() {
 
 void ArgumentParser::printUsage() const {
     std::cout << R"(
-scar - Sequence Mutation Tool v0.5
+scar - Sequence Mutation Tool v1.0.3
 Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences
 
 Usage: scar [options]
@@ -2804,6 +3021,7 @@ Mutation modes (choose ONE):
 
 Ancient DNA damage (OPTIONAL, can be combined with ANY mutation mode above):
   -d, --ancient-damage <file|dir>  SCAR damage profile file or mapDamage output dir
+                                   (mapDamage rates are background-subtracted)
                                    Can be stacked with any mutation mode
   --background-rate <rate>         Additional random mutation rate (optional)
 
@@ -2813,7 +3031,9 @@ DNA fragmentation (OPTIONAL, can be combined with any mode above):
   --fdf, --fragment-distribution-file <file>  Empirical distribution file (one length per line)
   --ml, --mean-length <N>          Mean fragment length (exponential/normal/lognormal)
   --sl, --sd-length <N>            Standard deviation (normal/lognormal)
-  --mfl, --min-fragment-length <N> Minimum fragment to keep (default: 20 bp)
+  --mfl, --min-fragment-length <N> Minimum fragment length (default: 20 bp)
+  --max-fragment-length <N>        Maximum fragment length (default: no limit)
+  --drop-remainders                Discard each read's leftover end instead of keeping it
   --allow-fasta-fragmentation   Allow fragmentation/damage on FASTA (not recommended)
 
 Optional arguments:

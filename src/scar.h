@@ -151,7 +151,8 @@ struct Config {
     FragmentDistribution fragment_mode = FragmentDistribution::NONE;  // Fragmentation mode
     size_t fragment_length = 0;         // Static fragment length
     size_t min_fragment_length = 20;    // Minimum fragment length to keep
-    size_t max_fragment_length = 0;     // Maximum fragment length (required for distributions)
+    size_t max_fragment_length = 0;     // Maximum fragment length (0 = no limit)
+    bool drop_remainders = false;       // Discard the leftover end of each read
     std::string fragment_dist_file;     // Empirical distribution file
     double fragment_mean = 0.0;         // Mean for parametric distributions
     double fragment_sd = 0.0;           // Std dev for parametric distributions
@@ -254,14 +255,19 @@ private:
     size_t static_length;                // For STATIC mode
     std::vector<size_t> empirical_lengths;  // For EMPIRICAL mode lengths
     std::discrete_distribution<size_t> empirical_dist; // For EMPIRICAL mode sampling
+    std::vector<size_t> sorted_lengths;  // EMPIRICAL: distinct lengths, ascending
+    std::vector<double> cumulative_weights; // EMPIRICAL: weight up to each sorted length
     double mean_length;                  // For parametric distributions
     double sd_length;                    // For NORMAL/LOGNORMAL
+    double log_mu;                       // LOGNORMAL: mean of log(length)
+    double log_sigma;                    // LOGNORMAL: sd of log(length)
     std::mt19937* rng_ptr;              // Pointer to RNG (not owned)
     
 public:
     FragmentLengthDistribution() : mode(FragmentDistribution::NONE), 
                                   static_length(0), mean_length(0.0), 
-                                  sd_length(0.0), rng_ptr(nullptr) {}
+                                  sd_length(0.0), log_mu(0.0), log_sigma(0.0),
+                                  rng_ptr(nullptr) {}
     
     /**
      * Initialize distribution
@@ -282,6 +288,21 @@ public:
      * @return Fragment length in base pairs
      */
     size_t sample();
+
+    /**
+     * Sample a fragment length from the distribution truncated to [min_length, max_length]
+     * @param min_length Shortest allowed fragment length
+     * @param max_length Longest allowed fragment length
+     * @return Fragment length in base pairs, or 0 if no allowed length is possible
+     */
+    size_t sample(size_t min_length, size_t max_length);
+
+    /**
+     * Probability that sample() returns a length <= length
+     * @param length Fragment length in base pairs
+     * @return Cumulative probability (0.0-1.0)
+     */
+    double cumulativeProbability(size_t length) const;
     
     /**
      * Check if fragmentation is enabled

@@ -8,14 +8,15 @@ This directory contains damage profiles converted from mapDamage output for simu
 **File**: `double_stranded_damage.txt`  
 **Source**: ds_Camelid14-El-Olivar (Ancient alpaca from El-Olivar archaeological site)  
 **Characteristics**:
-- Moderate C→T deamination at 5' end (~4.1% at position 1)
-- Moderate G→A deamination at 3' end (~4.2% at position 1)
+- Moderate C→T deamination at 5' end (~3.5% at position 1)
+- Moderate G→A deamination at 3' end (~3.6% at position 1)
+- Falls to 0 by position ~25 from either end
 - Symmetric damage pattern typical of double-stranded ancient DNA
 - Real data from extinct/endangered mammal studies
 
 **Usage**:
 ```bash
-./mutate_seq --input reads.fastq.gz --output damaged \
+./bin/scar --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --threads 8 --seed 27
 ```
@@ -24,14 +25,15 @@ This directory contains damage profiles converted from mapDamage output for simu
 **File**: `single_stranded_damage.txt`  
 **Source**: ss_Ccsp015 ancient sample  
 **Characteristics**:
-- Strong C→T deamination at 5' end (~15.9% at position 1)
-- Moderate G→A deamination at 3' end (~3.7% at position 1)  
-- Asymmetric damage pattern typical of single-stranded ancient DNA
+- Strong C→T deamination at 5' end (~15.3% at position 1)
+- Strong C→T deamination at 3' end (~14.6% at position 1, ~9.4% at position 2)
+- Low C→T level (~0.3%) through the rest of the read
+- C→T at both ends, typical of single-stranded ancient DNA
 - Higher degradation suitable for ancient samples with poor preservation
 
 **Usage**:
 ```bash
-./mutate_seq --input reads.fastq.gz --output damaged \
+./bin/scar --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/single_stranded_damage.txt \
     --threads 8 --seed 27
 ```
@@ -41,7 +43,7 @@ This directory contains damage profiles converted from mapDamage output for simu
 You can add a background mutation rate to simulate evolutionary divergence alongside damage:
 
 ```bash
-./mutate_seq --input reads.fastq.gz --output damaged \
+./bin/scar --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --background-rate 0.0001 \
     --threads 8 --seed 27
@@ -76,28 +78,45 @@ directory containing `misincorporation.txt` or the `misincorporation.txt` file
 itself to `--ancient-damage`.
 
 ```bash
-scar --input reads.fastq.gz --output damaged --ancient-damage path/to/mapdamage_results/
+./bin/scar --input reads.fastq.gz --output damaged --ancient-damage path/to/mapdamage_results/
 ```
 
-The standalone converter is kept for inspection/export workflows:
+mapDamage reports raw C→T and G→A rates relative to the reference. These rates
+also include reference divergence, the sample's own variants and sequencing
+error, which the input reads already contain. SCAR keeps only the damage:
+
+- Counts are summed over every reference sequence (`Chr`) block and both strands.
+- At each end and position, the opposite substitution is the undamaged control:
+  C→T damage = max(0, C→T − G→A), and G→A damage = max(0, G→A − C→T). This gives
+  5′ C→T and 3′ G→A for double-stranded libraries, and C→T at both ends for
+  single-stranded libraries.
+- Damage cannot increase away from an end, so each position is capped by the
+  positions before it (using a 3-position running median). This removes the
+  rise at deep positions, where mapDamage counts the other end of short molecules.
+
+The standalone converter applies the same conversion, for inspection/export workflows.
+The bundled profiles in this directory were made with it:
 
 ```bash
-convert_mapdamage.py path/to/misincorporation.txt --output custom_damage.txt
+damage_profiles/convert_mapdamage.py path/to/misincorporation.txt --output custom_damage.txt
 ```
+
+A profile file written by hand is used as given, with no subtraction.
 
 ## Expected Mutation Patterns
 
 With these profiles, you should observe:
 
 1. **C→T enrichment at 5' end** (first ~10-15 bases)
-2. **G→A enrichment at 3' end** (last ~10-15 bases)
+2. **G→A enrichment at 3' end** (last ~10-15 bases) for the double-stranded profile,
+   or **C→T enrichment at 3' end** for the single-stranded profile
 3. **Rapid decay** of damage signal away from ends
 4. **Background mutations** distributed uniformly (if --background-rate specified)
 
-### Example Results (10k reads, 150bp, double-stranded profile, 0.0001 background):
-- C→T: ~1013 (damage + background)
-- G→A: ~999 (damage + background)
-- Other substitutions: ~7-19 each (background only)
+### Example Results (10k random reads, 150bp, double-stranded profile, 0.0001 background, seed 27):
+- C→T: 138 (damage + background)
+- G→A: 168 (damage + background)
+- Other substitutions: 6-17 each (background only)
 
 ## References
 

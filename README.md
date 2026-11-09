@@ -1,6 +1,6 @@
 # SCAR — Sequences + Controlled mutations + Ancient damage + fRagmentation
 
-**Version 1.0* 
+**Version 1.0.3**
 
 `SCAR` Introduces controlled mutations, ancient DNA damage, and fragmentation into FASTA/FASTQ sequences.
 
@@ -28,11 +28,19 @@
 
 ```bash
 git clone https://github.com/Madshartmann1/SCAR.git
-cd mutation_tool
+cd SCAR
 ```
 ### Build
 ```bash
 make
+```
+
+This builds `bin/scar`. The examples below run it from the repository root as
+`./bin/scar`. To put `scar` on your `PATH`, run `make install`.
+
+Run the tests:
+```bash
+make test
 ```
 
 Check dependencies:
@@ -49,12 +57,12 @@ make check-deps
 
 ### Basic Syntax
 ```bash
-./scar --input <file> --output <prefix> [mutation_mode] [options]
+./bin/scar --input <file> --output <prefix> [mutation_mode] [options]
 ```
 
 For mapper-ready paired-end mutation, keep R1 and R2 separate:
 ```bash
-./scar --input-r1 R1.fastq.gz --input-r2 R2.fastq.gz \
+./bin/scar --input-r1 R1.fastq.gz --input-r2 R2.fastq.gz \
     --output-r1 mutated_R1 --output-r2 mutated_R2 \
     --mutation-rate 0.001 --threads 8 --seed 27
 ```
@@ -77,22 +85,22 @@ paired-end output is stable across thread counts and chunk sizes.
 
 #### 1. Flat Mutation Rate (0.1%)
 ```bash
-./scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
+./bin/scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 #### 2. Fixed Number of Mutations
 ```bash
-./scar --input genome.fa --output mutated --num-mutations 1000 --seed 27
+./bin/scar --input genome.fa --output mutated --num-mutations 1000 --seed 27
 ```
 
 #### 3. Ts/Tv Ratio Control
 ```bash
-./scar --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
+./bin/scar --input genome.fa --output mutated --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
 #### 4. Multi-threaded FASTQ Processing
 ```bash
-./scar --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 27
+./bin/scar --input reads.fastq.gz --output mutated --mutation-rate 0.0001 --threads 8 --seed 27
 ```
 --->
 
@@ -103,12 +111,12 @@ paired-end output is stable across thread counts and chunk sizes.
 Applies uniform mutation rate across all substitution types.
 
 ```bash
-./scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
+./bin/scar --input genome.fa --output mutated --mutation-rate 0.001 --seed 27
 ```
 
 Paired-end FASTQ example:
 ```bash
-./scar --input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz \
+./bin/scar --input-r1 reads_R1.fastq.gz --input-r2 reads_R2.fastq.gz \
     --output-r1 mutated_R1 --output-r2 mutated_R2 \
     --mutation-rate 0.001 --threads 8 --seed 27
 ```
@@ -117,7 +125,7 @@ Paired-end FASTQ example:
 Introduces exactly N mutations across the entire dataset.
 
 ```bash
-./scar --input genome.fa --output mutated --num-mutations 500 --seed 27
+./bin/scar --input genome.fa --output mutated --num-mutations 500 --seed 27
 ```
 
 **Note**: Requires in-memory mode (not available for streaming).
@@ -129,14 +137,14 @@ a rate-based mutation mode for synchronized R1/R2 output.
 Specifies different rates for transitions and transversions.
 
 ```bash
-./scar --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 27
+./bin/scar --input genome.fa --output mutated --ts-rate 0.002 --tv-rate 0.001 --seed 27
 ```
 
 ### Mode 4: Ts/Tv Ratio (`--mutation-rate` + `--ts-tv-ratio`)
 Sets overall mutation rate with specified Ts/Tv ratio.
 
 ```bash
-./scar --input genome.fa --output mutated \
+./bin/scar --input genome.fa --output mutated \
  --mutation-rate 0.001 --ts-tv-ratio 2.0 --seed 27
 ```
 
@@ -167,7 +175,7 @@ T       G       0.007
 ```
 
 ```bash
-./scar --input genome.fa --output mutated \
+./bin/scar --input genome.fa --output mutated \
     --mutation-matrix mutation_matrix.txt --mutation-rate 1 --seed 27
 ```
 
@@ -200,7 +208,7 @@ T       G       1.0
 ```
 
 ```bash
-./scar --input genome.fa --output mutated \
+./bin/scar --input genome.fa --output mutated \
     --mutation-spectrum mutation_spectrum.txt --mutation-rate 0.001 --seed 27
 ```
 
@@ -208,7 +216,8 @@ T       G       1.0
 
 `scar` can simulate position-dependent ancient DNA (aDNA) damage patterns, example:
 - **C→T deamination** enriched at 5' fragment ends
-- **G→A deamination** enriched at 3' fragment ends  
+- **G→A deamination** enriched at 3' fragment ends (double-stranded libraries), or
+  **C→T** at both ends (single-stranded libraries)
 - **Exponential decay** of damage signal away from fragment ends
 
 Ancient damage can be **combined with any mutation mode** (or used standalone).
@@ -216,13 +225,33 @@ Ancient damage can be **combined with any mutation mode** (or used standalone).
 
 **Just damage (`--ancient-damage`)**
 ```bash
-./scar --input reads.fastq.gz --output damaged \
+./bin/scar --input reads.fastq.gz --output damaged \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --threads 8
 ```
 
 `--ancient-damage` also accepts a mapDamage output directory containing
 `misincorporation.txt`; SCAR auto-detects the format and converts it in memory.
+
+mapDamage reports the raw C→T and G→A rates relative to the reference. These rates
+also include reference divergence, the sample's own variants and sequencing
+error. The input reads already contain those differences. SCAR therefore converts
+a mapDamage table to damage only:
+
+- Counts are summed over every reference sequence (`Chr`) block and both strands.
+- At each end and position, the opposite substitution is the undamaged control,
+  so only the excess is kept and clamped at 0:
+  C→T damage = max(0, C→T − G→A), and G→A damage = max(0, G→A − C→T).
+  This gives 5′ C→T and 3′ G→A for double-stranded libraries, and C→T at both
+  ends for single-stranded libraries, without needing a library-type option.
+- Damage cannot increase away from an end, so each position is capped by the
+  positions before it. mapDamage counts positions up to the full read length from
+  both ends, so the deep positions of short molecules hold damage from the other
+  end. The cap removes that rise. It uses a 3-position running median, so a single
+  outlier position cannot zero the rest of the profile.
+
+SCAR damage profile files are used as given. `damage_profiles/convert_mapdamage.py`
+applies the same conversion, so you can inspect the profile SCAR uses.
 
 Each nucleotide is assigned to its nearest fragment end and receives damage from
 that end only. At the exact midpoint of an odd-length fragment, SCAR averages the
@@ -231,14 +260,14 @@ from an end than the supplied profile, the final profile bin is carried forwards
 from the nearest end.
 
 ```bash
-./scar --input reads.fastq.gz --output damaged \
+./bin/scar --input reads.fastq.gz --output damaged \
     --ancient-damage mapdamage_results/ \
     --threads 8
 ```
 
 **Damage + mutation rate + Ts/Tv ratio (`--ancient-damage`+`--mutation-rate`+`--ts-tv-ratio`)**
 ```bash
-./scar --input reads.fastq.gz --output evolved_damaged \
+./bin/scar --input reads.fastq.gz --output evolved_damaged \
     --mutation-rate 0.001 --ts-tv-ratio 2.0 \
     --ancient-damage damage_profiles/single_stranded_damage.txt \
     --threads 8
@@ -249,7 +278,7 @@ from the nearest end.
 
 Background rate only affects positions left untouched by the damage profile. 
 ```bash
-./scar --input reads.fastq.gz --output complex \
+./bin/scar --input reads.fastq.gz --output complex \
     --ancient-damage damage_profiles/double_stranded_damage.txt \
     --background-rate 0.0001 \
     --threads 8
@@ -278,9 +307,9 @@ R1/R2 output, use paired-end mutation/damage without fragmentation.
 
 #### 1. Static Length (Fixed Size)
 
-All fragments exactly N bp:
+All fragments exactly N bp (N must be at least `--min-fragment-length`, default 20 bp):
 ```bash
-./scar --input reads.fastq.gz --output fragments \
+./bin/scar --input reads.fastq.gz --output fragments \
     --fragment-length 100 \
     --mutation-rate 0.001
 ```
@@ -292,7 +321,7 @@ weighted length tables, or mapDamage length distribution output.
 
 Example using a generic empirical distribution file:
 ```bash
-./scar --input input_reads.fastq.gz --output empirical_fragments \
+./bin/scar --input input_reads.fastq.gz --output empirical_fragments \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_lengths.txt \
     --mutation-rate 0.001
@@ -354,7 +383,7 @@ automatically.
 
 Example using a mapDamage `lgdistribution.txt` file:
 ```bash
-./scar --input simulated_reads.fastq.gz --output mapdamage_fragments \
+./bin/scar --input simulated_reads.fastq.gz --output mapdamage_fragments \
     --fragment-distribution empirical \
     --fragment-distribution-file mapdamage_results/lgdistribution.txt \
     --mutation-rate 0.001 \
@@ -367,7 +396,7 @@ higher occurrence counts are sampled more frequently.
 #### 3. Exponential Distribution
 
 ```bash
-./scar --input reads.fastq.gz --output frags \
+./bin/scar --input reads.fastq.gz --output frags \
     --fragment-distribution exponential \
     --mean-length 80 \
     --mutation-rate 0.001
@@ -376,7 +405,7 @@ higher occurrence counts are sampled more frequently.
 #### 4. Normal Distribution
 
 ```bash
-./scar --input reads.fastq.gz --output frags \
+./bin/scar --input reads.fastq.gz --output frags \
     --fragment-distribution normal \
     --mean-length 150 \
     --sd-length 30 \
@@ -386,7 +415,7 @@ higher occurrence counts are sampled more frequently.
 #### 5. Lognormal Distribution
 
 ```bash
-./scar --input reads.fastq.gz --output frags \
+./bin/scar --input reads.fastq.gz --output frags \
     --fragment-distribution lognormal \
     --mean-length 100 \
     --sd-length 50 \
@@ -395,15 +424,27 @@ higher occurrence counts are sampled more frequently.
 
 ### Fragment Length Filtering
 
-**Minimum fragment length**: By default, fragments shorter than **20bp** are discarded. Change this threshold:
+**Minimum fragment length**: no output fragment is shorter than `--min-fragment-length` (default **20 bp**). Fragment lengths are sampled from the distribution truncated at this length, and a leftover end of a read shorter than it is discarded. Change this threshold:
 
 ```bash
-./scar --input reads.fastq.gz --output frags \
+./bin/scar --input reads.fastq.gz --output frags \
     --fragment-distribution empirical \
-    --fragment-distribution-file ancient_dist_chagyrskaya8.txt \
+    --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --min-fragment-length 30 \
     --mutation-rate 0.001
 ```
+
+**Maximum fragment length**: `--max-fragment-length N` samples every fragment length from the distribution truncated at N bp. This is useful for open-ended distributions (exponential, normal, lognormal). SCAR stops with an error if the distribution cannot produce any length between `--min-fragment-length` and N.
+
+```bash
+./bin/scar --input reads.fastq.gz --output frags \
+    --fragment-distribution lognormal \
+    --mean-length 100 --sd-length 50 \
+    --max-fragment-length 150 \
+    --mutation-rate 0.001
+```
+
+**Dropping remainders**: the leftover end of a read is not drawn from the distribution, so it skews the output towards short fragments, most of all when the target lengths are close to the read length. `--drop-remainders` discards every leftover end, so each output fragment has a sampled length.
 
 
 ### Fragmentation Behavior
@@ -411,21 +452,21 @@ higher occurrence counts are sampled more frequently.
 **Input**: One sequence (e.g., chromosome or long read)  
 **Output**: Multiple fragments with sequential naming:
 ```
->chr1_frag1
+>chr1_frag1_0-49
 ACGTACGT...
->chr1_frag2  
+>chr1_frag2_50-121
 TGCAGCTA...
->chr1_frag3
+>chr1_frag3_122-180
 CGATCGAT...
 ```
 
+Each name gives the fragment number and its 0-based start and end positions in the input sequence.
+
 **Fragment size selection**:
-1. Sample a fragment length from the distribution
-2. If the first sampled length is longer than the whole read, discard that read
-3. If a later sampled length is longer than the remaining sequence, keep the remainder only if it is at least `--min-fragment-length`
-   - If yes: keep short fragment
-   - If no: discard remainder
-4. Extract each fragment with sequential `_fragN` names and repeat until the read is consumed
+1. Sample the first fragment length from the distribution truncated to lengths between `--min-fragment-length` and the read length (or `--max-fragment-length`, if shorter). A read shorter than a typical fragment is therefore still used. A read is discarded only if the distribution has no length that fits.
+2. Sample each later fragment length from the distribution truncated to lengths between `--min-fragment-length` and `--max-fragment-length` (if set).
+3. If a later sampled length is longer than the remaining sequence, the remainder becomes the last fragment if it is at least `--min-fragment-length` and `--drop-remainders` is not set. Otherwise it is discarded.
+4. Extract each fragment with sequential `_fragN` names and repeat until the read is consumed.
 
 
 ### Complete Ancient DNA Simulation Example
@@ -435,7 +476,7 @@ Combine fragmentation + mutations + damage for realistic ancient DNA:
 ```bash
 # First generate FASTQ reads from reference using ART or similar read simulator
 # Then apply fragmentation, mutations, and damage:
-./scar --input simulated_reads.fastq.gz --output ancient_sample \
+./bin/scar --input simulated_reads.fastq.gz --output ancient_sample \
     --fragment-distribution empirical \
     --fragment-distribution-file fragment_distributions/ancient_dist_chagyrskaya8.txt \
     --min-fragment-length 30 \
@@ -533,7 +574,7 @@ brew install zlib
 **Fix**: Use only ONE mutation mode. Example of incorrect usage:
 ```bash
 # INCORRECT: --num-mutations conflicts with --mutation-rate
-./scar --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
+./bin/scar --input file.fa --output out --num-mutations 100 --mutation-rate 0.01
 ```
 
 **Issue**: No mutations in output (0 in SNP file)  
@@ -563,8 +604,8 @@ brew install zlib
 ```bash
 gunzip -c reads.fastq.gz > reads.fastq
 # Process multiple times without decompression overhead
-./scar --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
-./scar --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
+./bin/scar --input reads.fastq --output test1 --mutation-rate 0.001 --threads 8
+./bin/scar --input reads.fastq --output test2 --mutation-rate 0.0001 --threads 8
 ```
 
 ## Technical Details

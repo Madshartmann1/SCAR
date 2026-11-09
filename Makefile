@@ -38,6 +38,10 @@ debug: $(SOURCES) $(HEADERS) | $(BIN_DIR)
 	$(CXX) $(DEBUGFLAGS) $(SOURCES) -o $(DEBUG_TARGET) $(LDFLAGS)
 	@echo "Debug build complete! Executable: $(DEBUG_TARGET)"
 
+test: $(TARGET)
+	bash tests/test_ancient_damage_nearest_end.sh
+	bash tests/test_damage_import_and_fragmentation.sh
+
 # Clean build artifacts
 clean:
 	rm -rf $(BIN_DIR)
@@ -83,4 +87,4 @@ help:
 	@echo "  - zlib development library (zlib1g-dev on Debian/Ubuntu)"
 	@echo "  - pthread support"
 
-.PHONY: all debug clean install uninstall check-deps help
+.PHONY: all debug test clean install uninstall check-deps help
